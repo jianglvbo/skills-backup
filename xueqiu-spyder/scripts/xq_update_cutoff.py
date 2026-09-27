@@ -34,10 +34,19 @@ else:
     changed.append(f'画像不存在（跳过）：博主/{nickname}/{nickname}.md')
 
 # 2. 看板博主控制台（MySQL bloggers 表权威；vault 博主控制台.md 已退役）
+# 闸门（2026-09-27）：loopback 也要 Bearer mcpToken，凭据从仓库 config.json 读
+def _auth():
+    try:
+        with open(os.path.expanduser('~/Project/investment-dashboard/src/config.json')) as f:
+            tok = json.load(f).get('mcpToken', '')
+        return {'Authorization': 'Bearer ' + tok} if tok else {}
+    except Exception:
+        return {}
+
 try:
     req = urllib.request.Request('http://127.0.0.1:8698/api/bloggers/update',
         data=json.dumps({'name': nickname, 'infoCutoff': new_cutoff}).encode(),
-        headers={'Content-Type': 'application/json'}, method='POST')
+        headers={'Content-Type': 'application/json', **_auth()}, method='POST')
     with urllib.request.urlopen(req, timeout=15) as resp:
         r = json.load(resp)
     changed.append('看板 bloggers.info_cutoff ✓' if r.get('ok') else f'看板更新失败: {r.get("error")}')

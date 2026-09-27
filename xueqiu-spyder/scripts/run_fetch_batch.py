@@ -39,7 +39,17 @@ LIST_PATH = os.path.expanduser("~/.cache/xueqiu-spyder/batch_list.json")
 
 
 def api(path):
-    with urllib.request.urlopen(API + path, timeout=20) as r:
+    # 闸门（2026-09-27）：loopback 也要 Bearer mcpToken，凭据从仓库 config.json 读
+    hdrs = {}
+    try:
+        with open(os.path.expanduser("~/Project/investment-dashboard/src/config.json")) as f:
+            tok = json.load(f).get("mcpToken", "")
+        if tok:
+            hdrs["Authorization"] = "Bearer " + tok
+    except Exception:
+        pass
+    req = urllib.request.Request(API + path, headers=hdrs)
+    with urllib.request.urlopen(req, timeout=20) as r:
         return json.load(r)
 
 

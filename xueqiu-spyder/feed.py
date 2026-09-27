@@ -234,9 +234,18 @@ def label_older_than(label, anchor_ms, since_dt):
 
 
 def load_tracked():
-    """看板博主清单（uid → 昵称）；服务不可用返回 None（不过滤，交给入库侧跳过）"""
+    """看板博主清单（uid → 昵称）；服务不可用返回 None（不过滤，交给入库侧跳过）。
+    闸门（2026-09-27）：loopback 也要 Bearer mcpToken，凭据从仓库 config.json 读。"""
     try:
-        with urllib.request.urlopen(DASHBOARD + "/api/bloggers/live", timeout=3) as r:
+        req = urllib.request.Request(DASHBOARD + "/api/bloggers/live")
+        try:
+            with open(os.path.expanduser("~/Project/investment-dashboard/src/config.json")) as f:
+                tok = json.load(f).get("mcpToken", "")
+            if tok:
+                req.add_header("Authorization", "Bearer " + tok)
+        except Exception:
+            pass
+        with urllib.request.urlopen(req, timeout=3) as r:
             data = json.loads(r.read().decode("utf-8"))
         bloggers = data.get("data") if isinstance(data, dict) else data
         m = {}

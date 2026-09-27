@@ -29,12 +29,23 @@ VAULT = '/Users/jianglb/Library/Mobile Documents/iCloud~md~obsidian/Documents/�
 BLOGGER_DIR = os.path.join(VAULT, '博主')
 API = 'http://127.0.0.1:8698'
 
+def _auth():
+    """看板登录闸门（2026-09-27）对 loopback 同样生效：脚本必须带 Bearer mcpToken，
+    凭据从仓库 config.json 读（不进命令行、不进 git），缺失时返回空 dict（表现为 401）。"""
+    try:
+        with open(os.path.expanduser('~/Project/investment-dashboard/src/config.json')) as f:
+            tok = json.load(f).get('mcpToken', '')
+        return {'Authorization': 'Bearer ' + tok} if tok else {}
+    except Exception:
+        return {}
+
 def api(path, payload=None):
     if payload is None:
-        with urllib.request.urlopen(API + path, timeout=15) as r:
+        req = urllib.request.Request(API + path, headers=_auth())
+        with urllib.request.urlopen(req, timeout=15) as r:
             return json.load(r)
     req = urllib.request.Request(API + path, data=json.dumps(payload).encode(),
-        headers={'Content-Type': 'application/json'}, method='POST')
+        headers={'Content-Type': 'application/json', **_auth()}, method='POST')
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.load(r)
 
