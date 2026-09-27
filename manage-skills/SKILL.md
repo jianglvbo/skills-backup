@@ -1,6 +1,6 @@
 ---
 name: manage-skills
-description: Manage the user's shared agent-skill library via skills-manager-cli — install, update, remove, deploy or undeploy skills per agent, organize them into folders (folders replaced the old presets), search, adopt, and back the library up via git. Use this whenever the user wants Claude Code, Codex, Cursor, Qoder, or another agent to gain or lose a skill, wants to organize the central library, or asks what is installed or deployed. Prefer this over direct agent-folder installs because Skills Manager preserves source metadata, folder membership, updates, and cross-agent deployment state. 触发词：「skillmanager」「skills-manager」「管理 skill 库」「技能库管理」「哪个 agent 装了哪些 skill」「收编 skill」「断开更新」。排除条件：本 skill 只管中心库与各 agent 部署；设计准则交 skill-guidelines，新建业务 skill 交 skill-creator，采集/提炼类业务 skill 不归本 skill。本机实测坑：source_type 没有 CLI 路径能改成 local（set-source 的 --git-url 必填），且直接 UPDATE 数据库会被运行中的桌面 app 写回原值。
+description: Manage the user's shared agent-skill library via skills-manager-cli — install, update, remove, deploy or undeploy skills per agent, organize them into folders (folders replaced the old presets), search, adopt, and back the library up via git. Use this whenever the user wants Claude Code, Codex, Cursor, Qoder, or another agent to gain or lose a skill, wants to organize the central library, or asks what is installed or deployed. Prefer this over direct agent-folder installs because Skills Manager preserves source metadata, folder membership, updates, and cross-agent deployment state. 触发词：「skillmanager」「skills-manager」「管理 skill 库」「技能库管理」「哪个 agent 装了哪些 skill」「收编 skill」「断开更新」。排除条件：本 skill 只管中心库与各 agent 部署；设计准则交 skill-guidelines，新建业务 skill 交 skill-creator，采集/提炼类业务 skill 不归本 skill。本机实测坑：要把技能改成 local（断开上游、让 update 跳过它）用 skills set-source <skill> --local，它会连元数据文件一起改；直接 UPDATE 数据库会被运行中的桌面 app 写回原值。
 ---
 
 ## Before doing anything
@@ -329,14 +329,24 @@ Useful queries:
 Prefer `git restore <tag>` over hand-running `git` inside the library: the app's own sync refs live there,
 and `git prune-sync-refs` exists specifically to clean up refs that a `--mirror`/`--all` push leaked.
 
-## Source type cannot be cleared from the CLI
+## Stop tracking upstream (make a skill `local`)
 
-`skills set-source` requires `--git-url`, so it can only re-point a skill at another git source; no command
-turns a git/import skill into a `local` one (the state that makes `update` skip it, like `bark` and
-`workspace-conventions` have). Writing the row directly in `~/.skills-manager/skills-manager.db` gets
-reverted within seconds by the running desktop app, which holds the list in memory and periodically runs
-`reindex sync metadata` (see `~/.skills-manager/.skills-manager.lock`). So "stop updating this skill, it's
-mine now" is an app-UI action, not an agent action — report that instead of trying to force it.
+`update` and the reinstall path replace the **whole** skill directory, so any edit made inside the library
+(a rewritten description, a patched script) is lost on the next run. To keep the copy and drop the upstream
+link:
+
+```bash
+"$SM" --json skills set-source <skill> --local --dry-run   # reports was/now without writing
+"$SM" skills set-source <skill> --local                    # source_type -> local, update_status -> local_only
+```
+
+After that `skills check <skill>` returns `skipped: true`, and `--git-url` and `--local` are mutually
+exclusive. Re-pointing at a different repo is the same command with `--git-url`.
+
+Do **not** try to get there by writing `~/.skills-manager/skills-manager.db` directly: the running desktop
+app holds the list in memory and periodically runs `reindex sync metadata`, which restores the old value
+within seconds. `set-source --local` goes through the repo lock and rewrites both the row and the
+`skills/<id>.json` metadata file, which is what makes it stick.
 
 If you do touch the DB for any reason, take a consistent copy first — the WAL is live, so `cp` misses data:
 `sqlite3 skills-manager.db ".backup backup-<purpose>-<timestamp>.db"`.
@@ -412,5 +422,5 @@ Report which skills actually refreshed (`refreshed: true` in the JSON) vs which 
 - **`folders delete` left the skills deployed** → deleting a folder is organization-only unless you pass `--undeploy`.
 - **`presets …` and `skills tag …` don't exist** → these are not deprecated flags but unknown subcommands; if a recollection of them surfaces, re-derive the command from `"$SM" folders --help` / `"$SM" skills --help`.
 - **Adopted skills can't be `update`d from git** → `npx skills add` and manual `git clone` don't leave source metadata, so adopt has to treat them as `local`. Re-point them with `skills set-source`. Do **not** reach for `adopt --git-url` here: adopt only ever creates new library entries, and it fails *late* — `--dry-run` returns `ok: true` with the skill sitting in `skipped`, and only the real run errors with `--git-url requires exactly one adoptable skill, found 0`. Do **not** remove-then-reinstall either — that drops the skill id, and with it its folder and every per-agent deployment.
-- **Tried to make a skill `local` by editing the DB** → the running app writes it back. See "Source type cannot be cleared from the CLI".
+- **Tried to make a skill `local` by editing the DB** → the running app writes it back. Use `skills set-source <skill> --local`, which also rewrites the metadata file. See "Stop tracking upstream".
 - Use `--dry-run` before bulk remove, folder delete, deploy, or undeploy operations. Use `check` before `update`. Take a `sqlite3 ".backup"` copy before any DB touch.
