@@ -4,7 +4,7 @@ description: >
   投资框架审查执行器。执行内容审查（框架一致性、知行合一、我的vs博主冲突、经验验证、跨条目关联备注发现）
   和结构审查（归类正确性、frontmatter完整性、wikilink有效性、标签匹配）。
   触发词：「审查」「review」「健康度」「框架检查」。
-  环节词归执行器所有（investment-framework 已让出「粗加工/归档/提炼/审查」），用户说「审查」「review」即命中本 skill；
+  环节词归执行器所有（investment-framework 已让出粗加工/归档/提炼/审查这几组词），用户说「审查」「review」即命中本 skill；
   整链编排走 investment-framework。区别于 investment-refine（提炼）与
   investment-coarse-processor（粗加工）；框架路径/模板/规则以 investment-framework 为准，本 skill 只做审查并落库。
 license: MIT

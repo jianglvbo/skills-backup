@@ -4,7 +4,7 @@ description: >
   投资框架粗加工执行器（非雪球来源）。读取粗制品 → 整理格式、去广告 → 补全 metadata → 移入原始资源。
   不生成提炼预览表，拆分决策由提炼环节负责。
   触发词：「粗加工」「归档」「整理帖子」。
-  环节词归执行器所有（investment-framework 已让出「粗加工/归档/提炼/审查」），用户直接说即命中本 skill；
+  环节词归执行器所有（investment-framework 已让出粗加工/归档/提炼/审查这几组词），用户直接说即命中本 skill；
   整链编排走 investment-framework。雪球帖子集不走本 skill（#29 原文直取 post_history）；
   区别于 investment-refine（提炼）与 investment-review（审查）。
 license: MIT
