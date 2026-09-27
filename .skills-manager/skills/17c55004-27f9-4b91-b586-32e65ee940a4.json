@@ -5,10 +5,10 @@
   "path_key": "manage-skills",
   "enabled": true,
   "source": {
-    "type": "git",
-    "ref": "https://github.com/xingkongliang/skills-manager/tree/main/skills/manage-skills",
-    "subpath": "skills/manage-skills",
-    "branch": "main"
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
   },
   "folder_id": "73142b82-bed6-4b22-a3fa-4219b47dc827"
 }
