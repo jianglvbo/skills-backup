@@ -144,6 +144,7 @@ git log --oneline origin/<branch>..HEAD | wc -l    # 本地领先数
 
 ## 自检
 
+- [ ] 多方案/重要变更动手前留了检查点提交？重大变更走的是分支而非主分支？
 - [ ] 暂存区只含本会话改动文件？清单中他人改动已在汇报中提示用户？
 - [ ] author 为当前模型名（`git log -1 %an` 复核过）？
 - [ ] 提交信息为用户自定义或 Conventional Commits 格式？
