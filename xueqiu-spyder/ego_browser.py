@@ -91,9 +91,18 @@ def _is_fatal(message):
 
 
 def _readline_sock(sock, buf, timeout):
-    """从 socket 读一行（带超时，自己按 \\n 切）；返回 (line, 新缓冲)"""
+    """从 socket 读一行（带超时，自己按 \\n 切）；返回 (line, 新缓冲)。
+
+    **buf 是 bytearray（bytes），只在拿到完整一行之后才 decode**。按 recv 块逐块
+    `chunk.decode("utf-8", "replace")` 会把跨块边界的多字节字符吃掉：一个汉字 3 字节，
+    被劈开后落单的字节各自非法 → 每个坏字节换 1 个 U+FFFD。2026-09-28 实测
+    post_history 有 50 行正文因此带伤（雪球原文「A股交易」入库成「A股\uFFFD\uFFFD易」），
+    且长帖的坏点全挤在字节 ~8060——macOS AF_UNIX 默认缓冲 8KB，recv 一次就那么多；
+    短帖坏点随机，因为 recv 返回多少本来就不定。整行 decode 不存在这个问题。
+    """
     end = time.time() + timeout
-    while "\n" not in buf:
+    nl = b"\n"
+    while nl not in buf:
         remaining = end - time.time()
         if remaining <= 0:
             return None, buf
@@ -103,9 +112,9 @@ def _readline_sock(sock, buf, timeout):
         chunk = sock.recv(65536)
         if not chunk:
             raise BridgeError("ego 桥连接已断开")
-        buf += chunk.decode("utf-8", "replace")
-    line, _, rest = buf.partition("\n")
-    return line, rest
+        buf += chunk
+    line, _, rest = buf.partition(nl)
+    return line.decode("utf-8", "replace"), rest
 
 
 def _kill_process_group(proc):
@@ -135,7 +144,7 @@ class EgoBridge:
         self._space = self.space
         self._srv = None
         self._conn = None
-        self._buf = ""
+        self._buf = bytearray()
         self._log_fh = None
         self._sock_path = None
         self.proc = None
@@ -213,7 +222,7 @@ class EgoBridge:
                 + (f"；若是因为任务空间被交接给用户，会自动改用新空间" if self._is_first_attempt else ""))
         conn.settimeout(None)
         self._conn = conn
-        self._buf = ""
+        self._buf = bytearray()
 
         line, self._buf = _readline_sock(self._conn, self._buf, min(30, self.boot_timeout))
         if line is None:
@@ -300,7 +309,7 @@ class EgoBridge:
             except Exception:
                 pass
         self._conn = self._srv = None
-        self._buf = ""
+        self._buf = bytearray()
         if self._log_fh:
             try:
                 self._log_fh.close()
@@ -319,7 +328,7 @@ class EgoBridge:
             except Exception:
                 pass
         self._conn = self._srv = None
-        self._buf = ""
+        self._buf = bytearray()
         if self._log_fh:
             try:
                 self._log_fh.close()
