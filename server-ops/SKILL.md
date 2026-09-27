@@ -1,16 +1,16 @@
 ---
 name: server-ops
-description: 云服务器（106.55.14.116）运维执行器。管理 Nginx HTTPS 入口（www.jianglvbo.site，80/443 反代）、问答网页「问」（8700）的部署/状态/重启，MySQL（investment-dashboard + fitness_plan）管理与备份。投资看板（investment-dashboard）**仅本地运行**（本机 launchd 8698 + ~/Project/investment-dashboard，vault=iCloud 绝对基准，2026-09-03 用户拍板服务器版已删）。fitness-console（8699）已退役全删（2026-09-21 用户拍板，服务器无残留）。触发词：「服务器」「部署到服务器」「服务器状态」「重启服务」「备份 MySQL」「HTTPS 证书」「106.55.14.116」「server-ops」。排除：本地 Obsidian 操作（走 investment-framework）、本地投资看板运维。
+description: 云服务器（106.55.14.116）运维执行器。管理 Nginx HTTPS 入口（www.jianglvbo.site，80/443 反代）、问答网页「问」（8700）、文件库只读站 investment-kb（8701，/kb/ + Basic Auth）的部署/状态/重启，MySQL（investment-dashboard + fitness_plan）管理与备份。投资看板本体**仅本地运行**（本机 launchd 8698 + ~/Project/investment-dashboard，vault=iCloud 绝对基准，2026-09-03 用户拍板服务器版已删；2026-09-27 仅额外上线「文件库」一页的只读站，不连 MySQL、无写入口）。fitness-console（8699）已退役全删（2026-09-21 用户拍板，服务器无残留）。触发词：「服务器」「部署到服务器」「服务器状态」「重启服务」「备份 MySQL」「HTTPS 证书」「106.55.14.116」「server-ops」「文件库上线」「只读站」。排除：本地 Obsidian 操作（走 investment-framework）、本地看板本体运维（launchd/8698 不在本 skill）。
 license: MIT
 agent_created: true
 metadata:
-  version: "2.3.0"
-  short-description: 云服务器运维（Nginx HTTPS + 问答 8700 + MySQL + Redis）
+  version: "2.4.0"
+  short-description: 云服务器运维（Nginx HTTPS + 问答 8700 + 文件库只读站 8701 + MySQL + Redis）
 ---
 
 # 服务器运维（server-ops）
 
-> **现状（2026-09-21）**：服务器承载 **Nginx HTTPS（www.jianglvbo.site，80 跳转 + 443 反代 8700）+ 问答「问」(8700) + MySQL（investment-dashboard / fitness_plan）+ Redis 缓存**。fitness-console（8699）已退役，unit/目录/`fitness` 库全部删除（2026-09-21 用户拍板，服务器无残留）。investment-dashboard 仅本地运行（2026-09-03 拍板），数据批量同步到本服务器 MySQL，本 skill 不负责其部署。
+> **现状（2026-09-27）**：服务器承载 **Nginx HTTPS（www.jianglvbo.site，80 跳转 + 443 反代 8700 与 /kb/→8701）+ 问答「问」(8700) + 文件库只读站 investment-kb (8701) + MySQL（investment-dashboard / fitness_plan）+ Redis 缓存**。fitness-console（8699）已退役，unit/目录/`fitness` 库全部删除（2026-09-21 用户拍板，服务器无残留）。investment-dashboard **看板本体仍仅本地运行**（2026-09-03 拍板有效），数据批量同步到本服务器 MySQL；2026-09-27 起额外上线的只有「文件库」那一页的**只读站**（见第五步之二）——两者不是一回事，别拿后者推翻前者的结论。
 
 ## Default stance
 
@@ -82,19 +82,32 @@ ssh jianglb@106.55.14.116 "tar czf /home/jianglb/backup/fitness-data-$(date +%Y%
 
 ### 第四步：investment-dashboard 数据链路（2026-09-03 起本地直连）
 - **架构**：本地看板（`~/Project/investment-dashboard`，launchd 8698，vault=iCloud 绝对基准）→ buildIndex → `syncFilesToDb` **批量同步**（多行 upsert ~20 查询，串行队列）→ 服务器 MySQL investment-dashboard（远端唯一共享库）
-- **vault 不再推送服务器**（`vault_sync.sh` 已随服务器版退役 2026-09-03；本机 `migrate_to_mysql.py` 2026-08-31 已退役）——MySQL 的 blogger 表由本地实例维护（files/tags 已退役，改为内存索引）
+- **看板服务器版没有**（`vault_sync.sh` 已随 2026-09-03 退役删除；本机 `migrate_to_mysql.py` 2026-08-31 已退役）——MySQL 的 blogger 表由本地实例维护（files/tags 已退役，改为内存索引）
+- ⚠ 2026-09-27 起**有一份 vault 内容镜像推上去了**，但那是「文件库只读站」的数据源（`~/investment-kb/vault/`，单向、只读、不参与任何写路径），**不等于服务器版看板回来了**。别把这两件事混为一谈（本 skill 旧版「vault 不再推送服务器」的表述就是这么被推翻的）。
 - 同步范围：只动 blogger 表（files/tags 已退役，改为内存索引）；运营表（refine/review/coarse/trash/prediction 域）一律不碰
 - 强制重建本地索引缓存：`POST http://127.0.0.1:8698/api/index/rebuild`
 - 库表 DDL 权威：`investment-framework/references/investment-dashboard.sql`（**实况 38 表 + 1 只读视图**：六张 `statement_*` 类型表 + `statement` UNION 视图 + 关联表 + `post_history` 等；单 `dict` 表承载全部码值。2026-09-13 表名/列名规范化后由 `scripts/export-schema.js` 从实库生成）
 - **本地服务管理**：launchd 单元 `com.investment-dashboard`（`launchctl kickstart -k gui/501/com.investment-dashboard` 重启）；启动前置：config.json + vault 可达 + node_modules 含 mysql2
 - 本地 MCP 端点：`http://127.0.0.1:8698/mcp`（token = config.json `mcpToken`；MCP 客户端配置里指向本地端点即可）
 
+### 第五步之二：investment-kb 只读站（8701，2026-09-27 上线）
+- **是什么**：投资看板「文件库」那一页的**线上只读版**（Obsidian 式目录树 + 笔记）。不连 MySQL、不接 MCP、无任何写入口（非 GET 一律 405），只听 `127.0.0.1:8701`。**看板本体仍是「仅本地运行」不变**（2026-09-03 拍板有效），上线的只有这一个只读页面。
+- **地址**：`https://www.jianglvbo.site/kb/`，公网唯一入口是 nginx `location /kb/` + Basic Auth（用户名 `jianglb`，密码见 `credentials.md` 的「## 文件库只读站 Basic Auth」段；哈希存 `/etc/nginx/.htpasswd-kb`，root:www-data 640，`openssl passwd -apr1` 生成）
+- **目录**：`~/investment-kb/{app,vault,logs}` —— `app/` 是代码（kb-site.js + lib/vault.js + web/，rsync --delete 跟仓库走），`vault/` 是内容镜像 137M/624 篇 md
+- **服务**：systemd `investment-kb`（`sudo systemctl {status,restart} investment-kb`，已 enable）；env 在 unit 里（KB_ROOT/KB_APP/KB_PORT/KB_HOST/KB_BASE）
+- **更新内容 = 本地跑** `bash ~/Project/investment-dashboard/src/scripts/deploy-kb.sh`（刷镜像→推代码→推 vault→restart）；只改代码加 `--app`（省掉 137M）。**服务器读不到 iCloud**，镜像必须先在本机生成（`vault-mirror.sh`，由本地看板进程每 10 分钟自动跑一次）
+- **回退**：`sudo systemctl disable --now investment-kb` + 从 sites-enabled 配置删掉 `location /kb/` 块（备份在 `/etc/nginx/jianglvbo.site.sites-enabled.bak-20260927`）+ `sudo nginx -t && sudo systemctl reload nginx`；`rm -rf ~/investment-kb` 清数据
+
 ### 第五步：Nginx HTTPS 入口（www.jianglvbo.site，2026-09-21 上线）
-- **架构**：Nginx 监听 80/443（default_server）——443 按 SNI 反代本机 `127.0.0.1:8700`（问答「问」），80 一律 `301` → `https://www.jianglvbo.site`；default 站点已删，全站唯一 server 配置在 `/etc/nginx/sites-available/jianglvbo.site`（软链 sites-enabled）
+- **架构**：Nginx 监听 80/443（default_server）——443 按 SNI 反代本机 `127.0.0.1:8700`（问答「问」）与 `127.0.0.1:8701`（`/kb/` 只读站），80 一律 `301` → `https://www.jianglvbo.site`；default 站点已删
+- ⚠ **实际生效的文件是 `/etc/nginx/sites-enabled/jianglvbo.site`，它是实体文件、不是软链**（2026-09-27 实测翻案，本 skill 旧版写「软链 sites-enabled」是错的）。`sites-available/jianglvbo.site` 那份**没有** `/exercise-media/` 块，两边已分叉——**改配置改 sites-enabled 那份**，改 sites-available 不生效。
+- ⚠ **`include /etc/nginx/sites-enabled/*` 会吃掉该目录下所有文件**：备份留在里面直接 `nginx -t` 报 `duplicate default server for 0.0.0.0:80`（2026-09-27 踩过）。备份命名成 `/etc/nginx/jianglvbo.site.sites-enabled.bak-日期`（放 sites-enabled 外面）。
 - **证书**：`/etc/nginx/ssl/jianglvbo.site_bundle.pem`（644）+ `.key`（600），腾讯云 TrustAsia DV，SAN = jianglvbo.site + www.jianglvbo.site，**2026-12-20 到期**；续期 = 腾讯云控制台重新申请 → 下载 Nginx 版 → 覆盖 ssl 目录两个文件 → `sudo nginx -t && sudo systemctl reload nginx`
 - **坑：服务器 Nginx 1.18 不支持 `http2 on;` 独立指令**（1.25+ 语法），必须写 `listen 443 ssl http2;`
 - **公网访问 80/443 须腾讯云安全组放行**（只能用户在控制台点；服务器 ufw/firewalld 均 inactive）
-- 改配置流程：`sudo cp x x.bak-日期` → 改 → `sudo nginx -t` → `sudo systemctl reload nginx`
+- 改配置流程：`sudo cp -a x <备份到 sites-enabled 之外>` → 改 → `sudo nginx -t` → `sudo systemctl reload nginx`
+- **本机（Mac）到 443 的 TLS 会被中途重置**（2026-09-27 实测：TCP 连得上、握手 reset，主站 `/` 同样打不开，与本次改动无关）；验证公网效果用服务器侧 `curl --resolve www.jianglvbo.site:443:127.0.0.1`，或换手机流量网络。
+
 
 ### 第六步：MySQL 管理
 - **现役库**：`investment-dashboard`（投资看板远端唯一共享库）+ `fitness_plan`（中文健身动作数据集，属本地 `~/Project/fitness-plan` 仓库 db/schema.sql）；`fitness`/`fitness_dev` 已随 fitness-console 退役删除（2026-09-21 确认不存在）
@@ -106,9 +119,9 @@ ssh jianglb@106.55.14.116 "tar czf /home/jianglb/backup/fitness-data-$(date +%Y%
 
 | 字段 | 类型 | 说明 |
 |:---|:---|:---|
-| 服务 | string | nginx / qa / mysql / redis-investment（investment-dashboard 服务器版已删，本地管理不在本 skill 范围） |
+| 服务 | string | nginx / qa / mysql / redis-investment / investment-kb（只读站 8701）；看板本体服务器版已删，本地管理不在本 skill 范围 |
 | 状态 | string | active / failed / inactive |
-| HTTP 码 | int | 8700 本地 curl；443 用本机 SNI curl（--resolve）验证（服务器侧）；8698 仅本地验证 |
+| HTTP 码 | int | 8700 与 8701 本地 curl；443 用**服务器侧** `curl --resolve www.jianglvbo.site:443:127.0.0.1` 验证（本机 Mac 到 443 的 TLS 被中途重置，测不出结果）；8698 仅本地验证 |
 | 数据校验 | string | investment-dashboard 行数快检 / overview API 与预期对比 |
 | 影响说明 | string | 变更操作前必须给出 |
 
@@ -134,7 +147,14 @@ ssh jianglb@106.55.14.116 "tar czf /home/jianglb/backup/fitness-data-$(date +%Y%
 
 - [ ] 连接是否用 jianglb 且无明文密码出现在命令/输出？
 - [ ] 变更操作（重启/改配置/删数据）前是否备份并说明影响？
-- [ ] investment-dashboard 是否按「仅本地」处理（不做服务器部署/同步，误触服务器残留引用能识别为已退役）？
+- [ ] investment-dashboard **看板本体**是否按「仅本地」处理？（2026-09-27 起**只有「文件库」只读站**在服务器上，它不连 MySQL、无写入口，别把它当成服务器版看板复活，也别拿它去改库）
+- [ ] 改 nginx 是否改的 `sites-enabled/jianglvbo.site`（实体文件、与 sites-available 已分叉）？备份是否放在了 sites-enabled **外面**？
 - [ ] fitness-console 相关引用能识别为已退役（2026-09-21 全删），不尝试重启/部署？
 - [ ] 新端口公网访问是否提醒安全组放行（服务器防火墙不挡端口）？
 - [ ] 改 Nginx 后是否 `nginx -t` 再 reload？证书是否在有效期内（到期 2026-12-20）？
+
+## 变更记录
+
+- **2026-09-27 上线 investment-kb 只读站**：新 unit + `/etc/nginx/.htpasswd-kb` + sites-enabled 配置加 `location /kb/`（备份 `/etc/nginx/jianglvbo.site.sites-enabled.bak-20260927`）。同批纠正本 skill 两处失真：sites-enabled 不是软链、vault 镜像确实有一份推上来了（只读站数据源）。
+- **2026-09-27 服务器清理（用户拍板）**：删 `~/src`（502M＝redis-stable 编译树 + redis.tar.gz）与 `investment-dashboard-dump-pre-rename-20260925.sql`（5.8M），释放约 508M。**Redis 本体不受影响**：可执行文件在 `~/redis/bin`（`/proc/<pid>/exe` 已核实），版本 v8.10.1 jemalloc-5.3.0，删后 `redis-investment` 仍 active、PING 通；要重建就照本 skill Redis 段重装。
+- 服务器 home 现存：`backup fitness-server investment-dashboard investment-kb jianglvbo.site.conf mysql qa redis`（`src` 已没了，别再去找）。
