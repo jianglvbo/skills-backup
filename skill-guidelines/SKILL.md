@@ -109,6 +109,8 @@ Reference 让 AI "读"（消耗 Token），Script 让 AI "做"（消耗算力）
 
 ## 审查已有 Skill
 
+**先分来源，再谈格式**：6 段结构与 ≤200 行只约束**自著 skill**。来源是 git / import / skillssh 的第三方说明书（例：manage-skills 属于 skills-manager 项目）**不改格式**——`skills update` 是整目录替换，补段落属于白改，下次更新就没了。真要改，前提是先 `skills set-source <skill> --local` 断开上游，而那是内容决策，先问用户。校验脚本对这一类报的缺失属误报：标注来源即可，不要为了过门禁去补段落。
+
 1. 第一步：逐项对照 6 段结构，缺了哪段补哪段
 2. 第二步：检查主文件行数 > 200 → 下沉到 references/
 3. 第三步：检查是否有机械性验证仍靠 AI 脑补 → 改成脚本
