@@ -5,8 +5,8 @@
   "path_key": "stylekit",
   "enabled": true,
   "source": {
-    "type": "local",
-    "ref": null,
+    "type": "git",
+    "ref": "https://github.com/AnxForever/stylekit-skill",
     "subpath": null,
     "branch": null
   },
