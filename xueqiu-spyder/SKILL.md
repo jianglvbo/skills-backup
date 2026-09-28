@@ -32,7 +32,7 @@ compatibility: macOS / Linux
 - 绝不内置或硬编码博主列表（以关注列表↔控制台同步为准）
 - 绝不绕过登录态裸调 API（WAF 拦截）；绝不连续翻页硬撞滑块
 - 绝不在采集阶段分析或总结帖子内容
-- 绝不把置顶帖归入采集窗口（user 模式）
+- 绝不把置顶帖归入采集窗口（user 模式全部 tab；**新博主首采热门路径例外**——置顶有意保留进正文）
 - 绝不跳过格式验收（对照 output-format.md）与入库校验
 - 绝不让 ego lite 抢焦点（唯一例外：滑块交接；`XUEQIU_EGO_WAKE=0` 缺省不激活）
 - 绝不未经完整性验证标「全文」——user 模式以详情页为准；feed 模式以流内信号为准（无展开控件或展开成功＝全文，2026-09-26 实测 DOM 自带截断控件）
@@ -68,6 +68,7 @@ python3 "$SPYDER/scripts/xq_sync_console.py" --apply    # 确认后落地
 |:---|:---|
 | 日常增量（全部已关注博主，隔 ≤3 天） | **feed** |
 | 首采 / 深窗口（>3 天）/ 跨周补采 / 书签未翻到 | user |
+| **新博主首采**（半年回溯 + 热门 5 页，2026-09-28 用户定） | user `--hot-pages 5`（先走 profile 档案落库） |
 | feed 完成后的缺帖抽查 | user（轮转抽 1/5~1/7 未露面博主翻一页核对） |
 
 ### 第四步：feed 模式采集（缺省）
@@ -94,7 +95,8 @@ $PY "$SPYDER/main.py" user {xq_id} --from "{info_cutoff}" --to "$NOW" \
 - **`--max-pages` 按窗口长度取**（硬约束）：≤24h→3、≤7 天→5、>7 天→10；批量每 10 位停 60 秒
 - **时区陷阱**：看板 API 把本地时间序列化成 UTC ISO，做 `--from` 必须 +8h 还原（批处理脚本已内置）
 - 流程：翻页 → 置顶排除+时间窗过滤 → 截断帖详情页补全（含精确时间覆盖）→ 帖子集输出；v4 端点 405 自动降级旧端点
-- 批量跑全部博主用 `scripts/run_fetch_batch.py`；细节 → `references/execution-guide.md`「user 模式」
+- `--hot-pages N`（新博主首采用 5）：热门 tab（type=9）前 N 页去重并入帖子集，不受时间窗裁剪；窗口起点自动停（排除置顶后最旧帖 ≤ `--from` 即止）
+- 批量跑全部博主用 `scripts/run_fetch_batch.py`；细节 → `references/execution-guide.md`「user 模式」「新博主首采」
 
 ### 第六步：格式验收（强制，对照 `references/output-format.md`）
 
@@ -120,11 +122,12 @@ node ~/Project/investment-dashboard/src/scripts/import-post-history.js --rm "<�
 
 条数、时间范围、全文/摘要数、博主数；出过风控必须附截图路径；末尾附进度条 `node ~/Project/investment-dashboard/src/scripts/fetch-progress.js`（完成口径：有留档/已注销/确认无新帖）。
 
-### stock / search 子命令（独立能力，不经提炼流水线）
+### stock / search / profile 子命令（独立能力，不经提炼流水线）
 
 ```bash
 $PY "$SPYDER/main.py" stock SZ002738 --min-reply 20 --max-pages 10   # 个股大V观点报告
 $PY "$SPYDER/main.py" search 治雨                                     # 搜用户 ID
+$PY "$SPYDER/main.py" profile 4026867340                             # 主页档案 JSON（uid/昵称/头像/简介/粉丝），新博主登记用
 ```
 
 ---
@@ -162,3 +165,4 @@ $PY "$SPYDER/main.py" search 治雨                                     # 搜用
 - [ ] 产物已落 post_history 且入库校验通过后才清理临时文件？
 - [ ] 全程没抢焦点（滑块交接除外）；跑完无残留页签/空间；风控截图已归档并附在汇报里？
 - [ ] `作者` 校验：多博主帖集按发布行作者归属、uid 仲裁无冲突？全员同名＝推荐位误抓？
+- [ ] 新博主首采走了完整三步（profile 档案落库含头像 → 半年窗口 → 热门 5 页）？热门/置顶处理符合「新博主首采」节？

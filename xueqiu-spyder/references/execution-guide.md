@@ -127,6 +127,44 @@ $PY "$SPYDER/main.py" user {xq_id} \
 
 ---
 
+## 新博主首采（2026-09-28 用户规划三步流；模式决策表「新博主首采」行）
+
+> 用户原话：「打开他的主页、同时获取雪球 id 和头像，落库；选择全部标签，划到底下获取完跳转第二页，以此类推直到半年；选择热门标签，获取前 5 页。」
+> 已按实测修正两点：主页**不是无限滚动**而是底部分页控件（20 条/页，API 翻页＝用户点页码，同一请求）；「直到半年」的边界判断**必须排除置顶帖**（置顶常年挂第 1 页首位，可能是几年前的旧帖）。
+
+**第 1 步：主页档案 → 落库登记**
+
+```bash
+$PY "$SPYDER/main.py" profile {雪球ID或昵称}     # 输出 JSON：uid/screen_name/avatar/description/followers_count/status_count
+```
+
+- 头像取 DOM（xavatar 240x240）；昵称/简介/粉丝取 timeline API 首条帖的 `user` 对象（同源无竞态）
+- 看板登记：`add_blogger`（HTTP `POST /api/bloggers` / MCP 同名工具，**avatar 参数 2026-09-28 起支持**），`infoCutoff`＝半年前 17:50（惯例）
+- **已被同步脚本登记过的博主**（有 xueqiuId、无头像简介）→ 用 `POST /api/bloggers/update` 补 avatar/summary，cutoff 不动
+- ⚠ 头像曾被 cutoff 回写清空的教训：`refreshConsoleCache` 的 SELECT 原来不带 avatar 列，updateBlogger「未传字段保留原值」回落到 undefined → 写 NULL（2026-09-28 已修，服务端 `_consoleCache` 现带 avatar）。改博主表读写时守住这条：**缓存映射必须与表列同步**
+
+**第 2 步：全部 tab 半年窗口（user 模式）**
+
+```bash
+NOW=$(date "+%Y-%m-%dT%H:%M:%S")
+$PY "$SPYDER/main.py" user {xq_id} --from "{半年前T17:50:00}" --to "$NOW" \
+  --max-pages 30 --outfile "雪球采集-{昵称}-{YYYY年M月D日}.md" --output ~/.cache/xueqiu-spyder/out
+```
+
+- `--max-pages 30` 只是**上限**：翻页器带窗口起点自动停（每页取完，排除置顶后最旧帖 ≤ 起点即止），实际页数=博主半年产量/20；半年以上深窗口也用这招，不用再估页数
+- 窗口覆盖门槛（exit 3）保留兜底：翻满上限仍没到起点 → 禁写 cutoff，加页重跑；门槛的 oldest 同样只看非置顶帖
+
+**第 3 步：热门 tab 前 5 页（同一命令加 `--hot-pages 5`）**
+
+- 请求＝同一 timeline 端点 + `type=9`（实测 UI 点「热门」所发；该维度总量约 200 条）；**不做端点降级**（旧路径+type=9 排序行为未验证，宁缺毋滥：单页失败重试一次后保留已取页数）
+- 在窗口过滤**之后**合并：与全部 tab 按帖子 id/target 去重，**不受时间窗裁剪**——热门会带回超出半年的高赞老帖，这是本步骤的价值，有意保留（首采一次性，无重复采集风险）
+- 热门页 1 **含置顶帖**（mark=1）：有意保留进正文（report 按 `from_hot` 放行）；全部窗口路径照旧排除置顶
+- 日常增量**不带** `--hot-pages`（热门是首采补强，不是增量路径）
+
+**请求形态铁律（2026-09-28 实测）**：timeline 请求一律贴 UI 形态 `?page=N&user_id=X[&type=9]&_=<毫秒时间戳>`——**不带 `type=0`**（全部 tab 就是不带 type，带上会被 WAF 直接弹 JS 挑战页）、**不带 `count`**（UI 不发，服务端默认 20；`crawler._timeline_count` 固定 20 只供窗口门槛数学，改大会让 exit 3 失灵）。探针连发 ~15 次即触发挑战，生产节流 1s 下几页的量没问题。
+
+---
+
 ## 格式验收（对照 output-format.md，两模式共用）
 
 spyder 输出后逐项核对：
