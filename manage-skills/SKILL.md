@@ -1,6 +1,6 @@
 ---
 name: manage-skills
-description: Manage the user's shared agent-skill library via skills-manager-cli — install, update, remove, deploy or undeploy skills per agent, organize them into folders (folders replaced the old presets), search, adopt, and back the library up via git. Use this whenever the user wants Claude Code, Codex, Cursor, Qoder, or another agent to gain or lose a skill, wants to organize the central library, or asks what is installed or deployed. Prefer this over direct agent-folder installs because Skills Manager preserves source metadata, folder membership, updates, and cross-agent deployment state. 触发词：「skillmanager」「skills-manager」「管理 skill 库」「技能库管理」「哪个 agent 装了哪些 skill」「收编 skill」「断开更新」。排除条件：本 skill 只管中心库与各 agent 部署；设计准则交 skill-guidelines，新建业务 skill 交 skill-creator，采集/提炼类业务 skill 不归本 skill。本机实测坑：要把技能改成 local（断开上游、让 update 跳过它）用 skills set-source <skill> --local，它会连元数据文件一起改；直接 UPDATE 数据库会被运行中的桌面 app 写回原值。
+description: Manage the user's shared agent-skill library via skills-manager-cli — install, update, remove, deploy or undeploy skills per agent, organize them into folders (folders replaced the old presets), search, adopt, and back the library up via git. Use this whenever the user wants Claude Code, Codex, Cursor, Qoder, or another agent to gain or lose a skill, wants to organize the central library, or asks what is installed or deployed. Prefer this over direct agent-folder installs because Skills Manager preserves source metadata, folder membership, updates, and cross-agent deployment state. 触发词：「skillmanager」「skills-manager」「管理 skill 库」「技能库管理」「哪个 agent 装了哪些 skill」「收编 skill」「断开更新」。排除条件：本 skill 只管中心库与各 agent 部署；设计准则交 skill-guidelines，新建业务 skill 交 skill-creator，采集/提炼类业务 skill 不归本 skill。强制闸门：任何「装个 skill」的指令（含 git clone / skills.sh / 本地目录）先扫三处查重——中心库、目标 agent 自己目录（含未纳管的实体目录，`ls` 才看得见）、该 agent 的插件与内置——再出对比表并停下等用户确认，未确认不得 install；agent 内部安装器产物（Qoder 插件市场、千问办公自带 dingtalk-*/docx/pptx 那类）一律不 adopt 不入库，由该 agent 自管。本机实测坑：要把技能改成 local（断开上游、让 update 跳过它）用 skills set-source <skill> --local，它会连元数据文件一起改；直接 UPDATE 数据库会被运行中的桌面 app 写回原值。
 ---
 
 ## Before doing anything
@@ -81,6 +81,34 @@ Two things the old docs got wrong, and are now confirmed against the shipped CLI
 The library directory is itself a git repo with a backup remote, auto-committed by the app. Use `git versions` / `git restore <tag>` to undo a bad batch rather than hand-rolling `git` inside it.
 
 ## Install
+
+**Nothing gets installed before a duplicate check.** When the user asks for an install in a session
+(`帮我从 github 装 archify`), scan all three places a skill can already live, report a comparison table, and
+**stop for confirmation** — `remove` drops the skill id with its folder membership and every per-agent
+deployment, so a wrong install is expensive to undo.
+
+```bash
+"$SM" --json agents list                              # each agent's skills_dir
+"$SM" --json skills list --query <name>                # 1. central library
+ls <skills_dir>                                        # 2. what that agent can already load
+ls ~/.qoder-cn/plugins/cache/*/*/skills 2>/dev/null    # 3. plugin-supplied skills (Qoder; other agents differ)
+```
+
+Step 2 has **no CLI support**: `skills list --deployed-to <agent>` reports only what the library owns, so
+unmanaged bodies sitting in an agent's own directory are invisible to it. `ls` is the only way to see them —
+never conclude "no duplicates" from `--deployed-to` alone.
+
+Then present the table, and only the table, before running anything:
+
+| 候选 | 已有同名/同能力项 | 所在层 | 纳管? | 上游 / 可否 `update` | 触发词是否撞车 | 结论 |
+|---|---|---|---|---|---|---|
+
+`结论` must be one of four, chosen from the evidence: **直接装** (nothing in any of the three layers) /
+**库里已有，缺的是补链** (same name in the library but `source_type` is `local` or `import` with no
+`source_ref` — the fix is `skills set-source --git-url`, not a second install) / **重复** (the library or the
+agent already has something that does this) / **撞在不同层，库管不了** (the overlap lives in a plugin or the
+agent's own built-ins, which never enter the library — say so plainly and propose trigger-word division of
+labour instead of an install).
 
 ```bash
 # From skills.sh marketplace
@@ -203,7 +231,20 @@ directory has drifted from what the library says it should contain. It takes no 
 
 ## Adopt skills installed elsewhere
 
-When skills already live in an agent's directory (e.g. installed via `npx skills add` or manual `git clone`) but aren't in the central library, pull them in:
+**What adopt is for:** a directory the user themselves wrote, cloned, or dropped in place, and now wants the
+library to own. It is **not** for skills an agent installed through its own internal mechanism — plugins from
+a marketplace, or an agent's shipped built-ins. Those stay out of the library permanently and the agent
+manages their lifecycle; adopting them would put update, undeploy, and version churn in two places at once.
+
+On this machine that exclusion covers, and only covers:
+
+- `~/.qoder-cn/plugins/cache/**` — Qoder plugin skills (they load from the plugin, not from a skills dir, so
+  there is nothing to adopt anyway).
+- 千问办公 (`qwen_work`) shipped skills: `dingtalk-*`, `docx` / `pptx` / `xlsx` / `pdf`, `create-skill`,
+  `plugin-creator`, `media-generation`, `qw-pages*`. They arrive with the agent and reappear after every
+  agent update, so an adoption is silently reverted — they are already recorded in `ignored_skills`.
+
+Everything else unmanaged in an agent directory **is** a candidate — pull it in:
 
 ```bash
 # Dry-run scan first — lists candidates without writing
@@ -382,10 +423,13 @@ deploying to `cline` or `warp` will create it again.
 ### "Find me a skill for X" / "Install a skill that does X"
 
 1. `skills search "X" --limit 5` — show the top 1–3 hits with install counts and source.
-2. If a clear winner: `skills install <install_ref>`.
-3. If ambiguous: ask the user to pick.
-4. Deploy it to the agent(s) the user requested with `skills deploy`.
-5. `skills status <name>` to confirm the library and deployment state.
+2. Run the three-layer duplicate scan from [Install](#install) and show the comparison table. `installs` is a
+   popularity proxy, not evidence that nothing on this machine already does the job — the scan is what decides.
+3. **Stop and wait for the user to pick.** Do not install the clear winner on their behalf; "clear" is exactly
+   where a redundant skill gets added to every future session.
+4. On confirmation: `skills install <install_ref>`.
+5. Deploy it to the agent(s) the user requested with `skills deploy`.
+6. `skills status <name>` to confirm the library and deployment state.
 
 ### "What skills do I have?"
 
@@ -429,4 +473,5 @@ Report which skills actually refreshed (`refreshed: true` in the JSON) vs which 
 - **Someone ran `npx skills …`** → that's a second, structurally identical system with its own library. It treats `~/.agents` as its state home (`skills/` holds the bodies, `.skill-lock.json` is its ledger, version 3) and deploys **relative** symlinks (`../../.agents/skills/<name>`) into agent dirs, so `skills-manager` neither sees nor repairs them. Both ledgers were reconciled on 2026-09-28: the extra library and its lock file were deleted, installs go through `$SM` only. Dangling links are silent — a skill just vanishes with no error.
 - **`adopt` left the source directory and created no deployment** → adopt **copies** into the library: it never deletes the source and writes no `skill_targets` row, so `skills status` shows 0 deployments afterwards. Deploy explicitly with `skills deploy`, then remove the source body yourself.
 - **Joining a folder pushed a skill to an unexpected agent** → folders claim agents (`folder_targets`), so membership alone subscribes every member to that folder's deployment set. Check `folders show <ref>` (claimed vs on-disk) before adding, and `folders targets <ref> --agent …` to change the claim rather than the membership.
+- **The user asks to install a skill the library already holds** → don't. `install` either refuses on `already exists` or, if it gets through, replaces the whole directory. Run `skills show <name>` first: `source_type: local` / `import` with `source_ref: null` means it's in the library but unlinked upstream, and the fix is `skills set-source --git-url … --subpath …`, which keeps the id, folder, and deployments.
 - Use `--dry-run` before bulk remove, folder delete, deploy, or undeploy operations. Use `check` before `update`. Take a `sqlite3 ".backup"` copy before any DB touch.
