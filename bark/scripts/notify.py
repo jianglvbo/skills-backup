@@ -23,6 +23,8 @@
 
 退出码: 0 = 推送成功（API code 200）；1 = 推送失败（打印返回体或异常）；2 = 用法错误。
 """
+from __future__ import annotations
+
 import argparse
 import json
 import sys
