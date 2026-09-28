@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "47c8c911-3340-42ce-8af3-134664edff28",
+  "path": "stylekit",
+  "path_key": "stylekit",
+  "enabled": true,
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  },
+  "folder_id": "0b5cce88-6685-49d1-8944-1a0bdbe90c5f"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "1b4dc282-b82c-432f-9886-259417403bf5",
+  "path": "handoff",
+  "path_key": "handoff",
+  "enabled": true,
+  "source": {
+    "type": "local",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  },
+  "folder_id": "73142b82-bed6-4b22-a3fa-4219b47dc827"
+}
