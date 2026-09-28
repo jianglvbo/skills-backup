@@ -4,7 +4,7 @@ description: >
   投资知识框架全局编排者。管理三大归属层（我的/博主/其他）+ 六大分类（分析框架/交易体系/投资心态/投资心得/个股/行业）+ 宏观。
   定义流水线（粗制品→粗加工→原始资源→提炼→审查）、模板表、路径表、全局规则、审查机制。
   触发词：「投资框架」「框架全貌」「pipeline」「编排」。
-  排除条件（业务环节词交执行器，本 skill 不抢）：「粗加工」「归档」「整理帖子」→ coarse-processor；「提炼」→ refine；「审查」「review」「健康度」→ review；「采集」「抓取」→ xueqiu-spyder。
+  排除条件（业务环节词交执行器，本 skill 不抢）：「粗加工」「归档」「整理帖子」→ coarse-processor；「提炼」→ refine；「审查」「review」「健康度」→ review；「采集」「抓取」→ xueqiu-spyder；「预测」「预测控制台」「记录预测」→ prediction-console。
   区别于 xueqiu-spyder（帖子采集，编排+工具一体）：本 skill 是路径和模板的唯一持有者，负责串联全部加工模块。
 license: MIT
 agent_created: true
@@ -54,6 +54,7 @@ compatibility: 通用
 | 仅粗加工（非雪球来源） | 粗加工、归档 | investment-coarse-processor |
 | 仅提炼（vault 常规路径） | 提炼 | investment-refine（前置：原始资源已存在该文档且 `status=待提炼`；否则先从粗制品粗加工） |
 | 审查 | 审查、review、健康度 | investment-review |
+| 预测控制台 | 预测、预测记录、预测控制台 | prediction-console（独立 skill，不经本编排者串联） |
 | 查看全貌 | 投资框架、框架全貌、pipeline | 输出框架说明 |
 
 ### 提炼输入锚点判定
@@ -74,7 +75,7 @@ compatibility: 通用
 **开工前置**：清待决策队列（refine 第一步 1.1）→ 取原文（refine 第一步 1.2）。
 **分析**：读取原文全文（常规：原始资源文件；**帖子集：`post_history` 库内原文**，MCP `post_history` `action=get`/`check`），判断归属层、分类、标签、库内关系（refine 第二步）。
 **创建条目**：按分析结果直接创建框架条目文件；涉及已登记博主 → 言论按分流矩阵落库 `statement` 六表（画像单轨）；涉及宏观事件 → 创建/更新宏观文件（refine 第三步）。
-**汇报 + 收尾**：向用户报告产出条目；常规路径把源文件 status 改为 `已提炼`（帖子集 #29 无源文件，以 `statement.source_url` 反查确认）；落库看板 `refine_trace`（refine 第四/五步）。
+**汇报 + 收尾**：向用户报告产出条目；常规路径把源文件 status 改为 `已提炼`（帖子集 #29 无源文件，以 `statement.source_url` 反查确认）；提炼产物落各自存储（言论六表 / wiki 条目），**提炼步骤落库已下线**（#54，用户异议走待决策队列）。
 
 ### 审查 → investment-review
 
@@ -102,7 +103,7 @@ compatibility: 通用
 
 ### 看板联动（investment-dashboard）
 
-完整清单见 `references/console-guide.md` §9（提炼链路 `refine_trace`／复核 `refine_review`／`review_record` / `console_*` 几类 MCP 落库、逐步复核与产物展示、失败处理）。提炼/审查执行器各自负责落库调用，编排者只在汇报中核对「看板数据未写入」提示。
+完整清单见 `references/console-guide.md` §9（`review_record` 审查落库、`pending_decision` 待决策、`console_statement_review` 言论复核建议、`post_history` 原文库、`console_*` 预测控制台等落库、产物展示与失败处理；**提炼链路 `refine_trace`/`refine_review` 已于 2026-09-26 随步骤落库下线删除**，#54）。提炼/审查执行器各自负责落库调用，编排者只在汇报中核对「看板数据未写入」提示。
 
 ---
 
@@ -134,7 +135,7 @@ compatibility: 通用
 | ROUGH_DIR | {VAULT_ROOT}/工作区/粗制品 | 粗制品暂存（雪球帖子集**不**落这里：采集直落 post_history，见 #29/#41；非雪球来源暂存于此） |
 | RAW_DIR | {VAULT_ROOT}/工作区/原始资源 | 粗加工后原始资源 |
 | 原文库 post_history | 看板 MySQL `post_history` 表（**采集落点 + 提炼前原文；只存帖子必要信息，不存提炼产物**）。写：`~/Project/investment-dashboard/src/scripts/import-post-history.js [--rm] <采集产物.md>`（批量；--rm 落库后清临时产物）或 `MCP post_history action=upsert`；读：`MCP post_history action=get/check` | 提炼的原文来源、回顾/重新提炼先查这里（规则 #41） |
-| 本地看板启动器 | `~/Project/investment-dashboard/scripts/run-server.sh`（launchd `com.investment-dashboard` 的 ProgramArguments 指向它；自愈 node 路径） | 看板 8698 启动/排障（详见 references/console-guide.md §8.5） |
+| 本地看板启动器 | `~/Project/investment-dashboard/src/scripts/run-server.sh`（launchd `com.investment-dashboard` 的 ProgramArguments 指向它；自愈 node 路径） | 看板 8698 启动/排障（详见 references/console-guide.md §8.5） |
 | 博主控制台 | 看板 MySQL `blogger` 表（读 GET /api/bloggers/live、写 POST /api/bloggers 与 /api/bloggers/update；vault 工作区/博主控制台.md 已退役删除） | 博主注册权威（编号/别名/雪球ID/平台/特别关注/信息截止） |
 
 ---
@@ -169,7 +170,7 @@ compatibility: 通用
 | 提炼/审查 | references/footnote-taxonomy.md | 脚注类型定义、格式规范、添加阶段 | 读取 |
 | 提炼 | assets/{模板名}.md | 对应分类的模板（纯结构骨架） | 读取 |
 | 审查 | references/review-rules.md | 审查维度和检查清单 | 读取 |
-| 看板联动 | references/console-guide.md | 看板数据契约（`refine_trace`/`review_record` 落库）、提炼链路七步与逐步复核、产物展示约定、前端设计铁律（§3/§4 是已退役的 `refine_record`/决策链路图 v2，仅作历史查阅） | 读取 |
+| 看板联动 | references/console-guide.md | 看板数据契约（`review_record`/`pending_decision`/`post_history` 等落库）、产物展示约定、前端设计铁律（§3/§4 是已退役的 `refine_record`/决策链路图 v2，仅作历史查阅） | 读取 |
 | 审查（段落布局） | scripts/verify-format.py | 段落布局/脚注内联/模板废话/模板成分残留（空表格行/来源blockquote/frontmatter注释/花括号占位）扫描（可 --fix 自动修复）。**纯标准库无第三方依赖** | **执行** |
 | 删除/回收/移动前（#25/#26） | scripts/check_inbound.py | inbound 引用反查（wikilink/脚注/source 字段），双向清理范围确认工具 | **执行** |
 | 改 framework-rules 编号后 | scripts/check-rule-refs.py | 全家 SKILL.md/references 的 `framework-rules #N` 引用校验（悬空即报错，退出码 1） | **执行** |
@@ -194,6 +195,6 @@ compatibility: 通用
 - [ ] 待提炼文档是否满足前置条件？（按「提炼输入锚点判定」走；**帖子集例外：原文取自 `post_history` 库内**，不读 vault 文件）
 - [ ] **操作门是否已过**？——删除/回收/移动前已运行 `check_inbound.py` 反查并清理引用；批量操作后已运行 `vault_review.py --incremental` 增量校验
 - [ ] 待回收处置是否严格按 #26（用户加 `delete` 字段标记、7 天冷静期、超期真删+双向清理+理由报告），Agent 不替用户标记、不 shortcut？**粗制品例外**：跳过冷静期即时可回收
-- [ ] 看板是否已联动（提炼链路 `refine_trace`／审查 `review_record`）？API 失败时是否汇报「看板数据未写入」？（契约见 references/console-guide.md §9）
+- [ ] 看板是否已联动（审查 `review_record`；提炼产物落各自存储，#54 后无步骤落库）？API 失败时是否汇报「看板数据未写入」？（契约见 references/console-guide.md §9）
 
 > 提炼/粗加工/审查的**执行层**自检（标签体系、归属层、模板完整、字段规范等）在各执行 skill 的自检节，编排者不重复。

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "folder_id": "643ce776-71b7-47b1-bde7-7221c9a64518",
+  "name": "ui 设计",
+  "parent_id": "73cf863f-4b56-453c-85f6-f0f2873fb748",
+  "sort_order": 0,
+  "targets": [
+    "qwen_work"
+  ]
+}

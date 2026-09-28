@@ -20,11 +20,12 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAMILY = [
-    os.path.dirname(HERE),                       # investment-framework
-    os.path.expanduser('~/.zcode/skills/investment-refine'),
-    os.path.expanduser('~/.zcode/skills/investment-coarse-processor'),
-    os.path.expanduser('~/.zcode/skills/investment-review'),
-    os.path.expanduser('~/.zcode/skills/post-fetch'),
+    os.path.dirname(HERE),                       # investment-framework（本体；工作区 .agents/skills 是指向本体的软链）
+    os.path.expanduser('~/.skills-manager/skills/investment-refine'),
+    os.path.expanduser('~/.skills-manager/skills/investment-coarse-processor'),
+    os.path.expanduser('~/.skills-manager/skills/investment-review'),
+    os.path.expanduser('~/.skills-manager/skills/xueqiu-spyder'),
+    os.path.expanduser('~/.skills-manager/skills/prediction-console'),
 ]
 RULES_FILE = os.path.join(os.path.dirname(HERE), 'references', 'framework-rules.md')
 REF_PAT = re.compile(r'framework-rules(?:\.md)?\s*[#＃]\s*(\d+)')

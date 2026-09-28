@@ -10,10 +10,10 @@
 
 | 写入方 | 端点 | 数据 | 看板呈现 |
 |:---|:---|:---|:---|
-| investment-refine 第五步 | **`MCP refine_trace`**（2026-09-14 起；原 `refine_record` 已下架） | 一个提炼单元 + 该链路 7 步判定（verdict/basis/复核状态） | 提炼记录页：单元卡 + 逐步复核（步骤卡**左滑出「复核」**；复核意见写 `refine_review`） |
+| investment-refine | 产物落各自存储（言论六表 / wiki 条目，各自落库动作不变）；**提炼步骤落库已下线**（2026-09-26 用户拍板，framework-rules #54——`refine_trace`/`refine_review` 工具与三表已删除，提炼记录页不再存在） | —（无链路落库；用户异议走 `pending_decision` 待决策与 `console_statement_review` 言论卡复核建议） | — |
 | investment-review 第四步 | `MCP review_record` | 结构化审查（checks/groups/recycle） | 审查模块（2026-08-16 起不再产出 md 审查报告） |
 | 粗制品队列 | `GET /api/coarse/list` | 直接读 vault `工作区/粗制品/`；「已加工」状态由 **`refine_item.source_rel`**（wiki 链路）推导（2026-09-14 换源；原 `coarse_records`/`refine_record` 表均已删除，评分字段不再展示） | 粗制品模块 |
-| post-fetch 第五步 | `scripts/import-post-history.js`（批量）/ `MCP post_history`（单条 upsert） | 采集原文落 `post_history` 表（提炼前原文留档，**唯一用途=避免重采**） | 不呈现（后端留档；`post_history action=get/check` 供提炼与补采读取） |
+| xueqiu-spyder 落库步 | `scripts/import-post-history.js`（批量）/ `MCP post_history`（单条 upsert） | 采集原文落 `post_history` 表（提炼前原文留档，**唯一用途=避免重采**） | 不呈现（后端留档；`post_history action=get/check` 供提炼与补采读取） |
 
 失败处理：API 失败（看板未启动）不阻断主流程，汇报提示「看板数据未写入」。
 
@@ -23,7 +23,9 @@
 > —— 该 MCP 工具与 `refine_record`/`refine_target_sub` 两张表**已于 2026-09-14 下架**
 > （framework-rules #54；旧 187 条记录备份在
 > `~/Project/investment-dashboard/backups/refine_legacy_20260913155544/`）。
-> **新提炼只调 `MCP refine_trace`（7 步判定）**，写的是 `refine_item`/`refine_step`/`refine_review`。
+> **后继的 `refine_trace`/`refine_review`（7 步判定链路）也已随提炼步骤落库整体下线**
+> （2026-09-26 用户拍板，framework-rules #54；`refine_item`/`refine_step`/`refine_review`
+> 三表同批删除）——本节全篇仅历史查阅，现役契约见 §2 与 §9。
 > 下文里的 `targets[]`、`thinking` v2、`verify` 等字段都只用于解释历史数据，不要再按它写入。
 
 ```json
@@ -111,7 +113,7 @@
 | 项 | 值 |
 |:---|:---|
 | 服务 | launchd `com.investment-dashboard`（`~/Library/LaunchAgents/com.investment-dashboard.plist`，KeepAlive=1，端口 8698） |
-| 启动器 | **`~/Project/investment-dashboard/scripts/run-server.sh`**（plist 的 ProgramArguments 指向它）——按「WorkBuddy `versions/current` → 任一已装版本 → PATH 里的 node」解析 node 后 exec server.js |
+| 启动器 | **`~/Project/investment-dashboard/src/scripts/run-server.sh`**（plist 的 ProgramArguments 指向它）——按「WorkBuddy `versions/current` → 任一已装版本 → PATH 里的 node」解析 node 后 exec server.js |
 | 重启 | `launchctl kickstart -k gui/$(id -u)/com.investment-dashboard`；改 plist 后用 `launchctl bootout` + `launchctl bootstrap gui/$(id -u) <plist>` |
 | 日志 | `~/Library/Logs/investment-dashboard.log`（stdout+stderr 合并） |
 | 健康检查 | `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8698/` → 200；`launchctl list \| grep investment-dashboard` → 第二列为退出码（非 0 即异常） |
@@ -170,7 +172,7 @@ curl -s -X POST http://127.0.0.1:8698/api/cache/clear         # 手动失效（e
   **用户在卡片上还能点「建议删除这条言论」**（＝帖子质量不够却被提炼了，**理由必填**）：答复落成 `verdict=delete`，
   提炼时 `list status=pending_internalize verdict=delete` 就是**必须执行的删除清单**（删完 `internalize` 回写「已删除言论 #id + 规则落点」，
   页面随之显示「言论已删除」）；删除理由要追加到 `refine-schema.md` 的「用户删过的类型」判据表，让同类帖子下次不落库（framework-rules #50）。`blogger_statement` 遇到解析不出的标的名会**自动上报**一类（warnings 里带编号）。
-- **原文留档**（2026-09-11 新增）→ `post_history` 表：采集验收后由 post-fetch 调 `scripts/import-post-history.js` 落库（摘要帖/无链接帖不入库）；提炼侧取原文（refine 第一步 1.2）与补采场景用 `MCP post_history`（`check` 查窗口内已留档、`get` 取原文）——**目的是避免重采**，不参与提炼判定。规则见 framework-rules #41
+- **原文留档**（2026-09-11 新增）→ `post_history` 表：采集验收后由 xueqiu-spyder 调 `scripts/import-post-history.js` 落库（摘要帖/无链接帖不入库）；提炼侧取原文（refine 第一步 1.2）与补采场景用 `MCP post_history`（`check` 查窗口内已留档、`get` 取原文）——**目的是避免重采**，不参与提炼判定。规则见 framework-rules #41
 - **待读/已读**（2026-09-12 用户要求）→ 言论「阅读状态」：`statement_*` 六表的 `is_read`（默认 1=已读），
   看板三层徽标＝侧边栏维度入口角标（博主/个股/行业/指数/市场各一个）/ 列表卡右上角待读数 / 言论卡**左侧红条**（不写文字，用户 2026-09-12 要求）；
   用户把言论卡**向上滑出可视区**（首屏就在屏上的不算）由前端 `POST /api/statement/read` 置已读（**只写库、界面不自动刷新**——

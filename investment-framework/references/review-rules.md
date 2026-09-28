@@ -21,23 +21,6 @@
 
 > 看板 UI 侧：原「待复核」badge 已移除，仅当存在复核记录时显示「复核」badge（tooltip 见建议原文）。
 
-### 复核建议的第二来源：提炼链路复核队列（2026-09-13 新增）
-
-上面处理的是**用户在言论卡左滑写的建议**（`statement_review_sub`）。同一次首步还要处理**用户对提炼链路逐步打回的意见**（`refine_review`，见 framework-rules #54）——这是用户「看到哪一步提炼错了」的直接入口，比左滑建议更精确（**带 `step_code`，能直接定位到要改的规则文件**）：
-
-1. 调 MCP `refine_review(action=list, status=open)` 取全部待处理复核。
-2. 按锚点分两路处理：
-
-   | 锚点 | 审查怎么做 |
-   |:---|:---|
-   | **有 `step_code`**（步级复核） | **直接定位**：按「步骤→规则文件」对照处理错的那一步（`worth`→`refine-schema` 的低质帖判据表 / `content_type`→分流矩阵 / `split`→一帖一条规则 / `attribution`→#12+#30 / `subjects`→`stock-mention-rules.md` / `signal_time`→信号判据+内容时间规则 / `relation`→分层检索链），**同时回看库内同类**（同类一次判净） |
-   | **只有 `statement_id`/`target_rel`**（帖级复核） | **先归因再改**：从 `refine_trace action=get` 取该帖的 7 步结论，判断错在第几步，再按上表改对应规则 |
-
-3. 改完后 `refine_review(action=apply, id, internalized="改了哪条规则/哪个文件")` 关闭——**`internalized` 必填**（沿用 #49/#50：只答不内化＝同类会被反复复核）。
-4. 判断意见不成立时 `refine_review(action=dismiss, id)` 并说明理由，不静默丢弃。
-
-> **和 `statement_review_sub` 的分工**：左滑建议是**用户随手写的自然语言**（要人来归因）；链路复核是**用户点在某一步上的结构化意见**（带 `step_code`，可直接落规则）。两者都要在审查首步清空，不能只清一个。
-
 ## 内容审查
 
 检查框架内容质量：
