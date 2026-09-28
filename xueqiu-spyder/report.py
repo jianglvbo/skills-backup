@@ -83,9 +83,11 @@ def generate_user_report(screen_name, user_id, opinions, output_dir=None, outfil
 
     now = _dt.now()
     date_cn = now.strftime("%Y年%m月%d日")
-    # 置顶帖不纳入正文（置顶时间旧且非本次窗口内容），但仍列出供追溯
-    body_ops = [o for o in opinions if not o.is_pinned]
-    pinned_ops = [o for o in opinions if o.is_pinned]
+    # 置顶帖：时间窗路径不纳入正文（置顶时间旧且非本次窗口内容），仅附录一行供追溯；
+    # 热门路径（from_hot，新博主首采 2026-09-28）的置顶帖**有意纳入正文**——首采一次性
+    # 无重复采集风险，且置顶通常是博主最重要的方法论帖（如五年实盘复盘）
+    body_ops = [o for o in opinions if not o.is_pinned or o.from_hot]
+    pinned_ops = [o for o in opinions if o.is_pinned and not o.from_hot]
 
     lines = [
         "---",

@@ -24,6 +24,7 @@ class Opinion:
     created_at: str = ""          # 展示用：YYYY-MM-DD HH:MM
     created_ts: int = 0           # 原始毫秒时间戳（窗口过滤/排序用）
     is_pinned: bool = False       # 置顶帖
+    from_hot: bool = False        # 来自热门 tab（新博主首采；置顶帖经此路径保留进正文）
     completeness: str = "全文"    # 全文 / 摘要
     form: str = "短文"            # 形态：回复 / 短文 / 长文 / 专栏
     title: str = ""
@@ -157,6 +158,7 @@ def posts_to_opinions(posts):
             created_at=_parse_timestamp(created_ts),
             created_ts=created_ts,
             is_pinned=is_pinned,
+            from_hot=bool(post.get("from_hot")),
             form=infer_form(clean_text, bool(post.get("is_column"))),
             title=(post.get("title") or "").strip(),
             post_url=f"https://xueqiu.com/{target}" if target else "",

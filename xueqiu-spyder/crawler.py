@@ -43,7 +43,9 @@ class XueqiuCrawler:
         self._page_override = None
         # timeline 端点状态：v4 被 WAF 405 时自动降级到旧版路径（2026-09-09 固化）
         self._timeline_url = config.USER_TIMELINE_URL
-        self._timeline_count = config.USER_POSTS_COUNT
+        # 每页条数固定 20：请求不再拼 count（UI 不发，服务端默认 20）；此值只供窗口门槛
+        # 的「页数用满」数学使用，改大会让门槛失灵（漏判 exit 3 → 断点误推进 → 漏采）
+        self._timeline_count = 20
         self._degraded = False
         self._shot_tag = time.strftime("%Y%m%d-%H%M%S")   # 本次采集的截图批次号
         self._detail_seen = 0
@@ -163,8 +165,11 @@ class XueqiuCrawler:
                 logger.warning("现场截图失败（不影响采集）：%s", e)
             return None
 
-    def _fetch_timeline_page(self, user_page, user_id, page_num):
-        """timeline 单页抓取。fetch 一律用 **相对路径**：2026-09-21 起雪球把 apex 域
+    def _fetch_timeline_page(self, user_page, user_id, page_num, type_code=None):
+        """timeline 单页抓取。请求形态贴 UI（2026-09-28 实测）：`page&user_id[&type]&_时间戳`——
+        全部 tab 不带 type（**带 type=0 会被 WAF 直接挑战**），热门 tab 才带 type=9；
+        count 参数 UI 不发（服务端默认 20），别再拼上去。
+        fetch 一律用 **相对路径**：2026-09-21 起雪球把 apex 域
         (xueqiu.com) 302 到 www.xueqiu.com，页内绝对 URL fetch 会跨域跳转，
         带 cookie 的跨源重定向被浏览器直接掐掉（Failed to fetch，连状态码都没有）；
         相对路径随页面 origin（www）同源请求则正常返回。"""
@@ -172,9 +177,10 @@ class XueqiuCrawler:
             """async (args) => {
                 try {
                     const path = new URL(args.url).pathname;
-                    const resp = await fetch(
-                        `${path}?user_id=${args.uid}&page=${args.page}&count=${args.count}`
-                    );
+                    let q = `?page=${args.page}&user_id=${args.uid}`;
+                    if (args.type) q += `&type=${args.type}`;
+                    q += `&_=${args.ts}`;
+                    const resp = await fetch(path + q);
                     const ct = resp.headers.get('content-type') || '';
                     if (!ct.includes('json')) return {ok: false, error: 'not json'};
                     const data = await resp.json();
@@ -182,25 +188,20 @@ class XueqiuCrawler:
                     return {ok: true, statuses: data.statuses || [], count: data.count};
                 } catch(e) { return {ok: false, error: e.message}; }
             }""",
-            {"uid": user_id, "page": page_num,
-             "url": self._timeline_url, "count": self._timeline_count},
+            {"uid": user_id, "page": page_num, "url": self._timeline_url,
+             "type": type_code, "ts": int(time.time() * 1000)},
         )
 
     def _degrade_timeline(self):
-        """v4 timeline 端点被 WAF 拦截时，自动切到旧版路径并下调每页条数
-
-        2026-09-09 实测：v4/statuses/user_timeline.json 会被阿里云 WAF 对该 IP
-        临时封禁（405，页面自身带签名请求亦 405），而旧版 /statuses/user_timeline.json
-        仍可用且数据结构一致。降级只做一次，避免无限重试。
-        """
+        """v4 timeline 端点被 WAF 拦截时，自动切到旧版路径（2026-09-09 固化；
+        2026-09-28 起请求不再拼 count 参数——UI 不发，服务端默认 20，与旧版上限一致）"""
         if self._degraded:
             return False
         self._timeline_url = config.USER_TIMELINE_URL_FALLBACK
-        self._timeline_count = config.FALLBACK_POSTS_COUNT
         self._degraded = True
         logger.warning(
-            "timeline 端点失败，自动降级到旧版路径重试: %s (count=%d)",
-            self._timeline_url, self._timeline_count,
+            "timeline 端点失败，自动降级到旧版路径重试: %s (count=20)",
+            self._timeline_url,
         )
         return True
 
@@ -496,7 +497,7 @@ class XueqiuCrawler:
                 return uid, target["name"]
         raise CrawlerError(f"无法解析用户ID: {target}")
 
-    def get_user_all_posts_with_info(self, user_id, max_pages=10):
+    def get_user_all_posts_with_info(self, user_id, max_pages=10, window_lo_ms=None):
         """在同一个页面中获取用户信息和所有帖子，避免重复导航
 
         昵称来源（2026-09-24 定论，别再改回 DOM）：**取 timeline API 首条帖子的
@@ -506,13 +507,19 @@ class XueqiuCrawler:
         「用户推荐」（曾把 10 个博主的 author 写成「大道无形我有型」）；改
         `document.title` 只是缓解，页面加载中 title 未成形时仍会回落到侧栏。
         DOM 仅作末位兜底（拿不到 API 数据时才用）。
+
+        window_lo_ms（2026-09-28 新博主首采流）：给了窗口起点就**翻到边界自动停**——
+        每页取完，排除置顶后最旧帖 ≤ 窗口起点即止。置顶帖常年挂第 1 页首位
+        （可能是几年前的旧帖），不排除会把边界误判在第 1 页、整轮只采到 20 条。
+        主页不是无限滚动而是底部分页控件（实测 20 条/页），这里的 API 翻页与
+        用户在页面上点「第 N 页」是同一个请求。
         """
         user_page = self._ego.new_page()
         all_statuses = []
         screen_name = str(user_id)
         try:
             user_page.goto(
-                f"https://xueqiu.com/u/{user_id}",
+                f"https://www.xueqiu.com/u/{user_id}",
                 wait_until="domcontentloaded",
                 timeout=15000,
             )
@@ -536,6 +543,16 @@ class XueqiuCrawler:
                     break
                 all_statuses.extend(statuses)
                 logger.info(f"  第 {page_num} 页获取 {len(statuses)} 条 (共 {len(all_statuses)})")
+                if window_lo_ms:
+                    live = [s for s in statuses
+                            if not (s.get("mark") == 1 or s.get("pinned"))]
+                    oldest_live = min((s.get("created_at") or 0) for s in live) if live else 0
+                    if oldest_live and oldest_live <= window_lo_ms:
+                        logger.info(
+                            "  已翻到窗口起点（%s），停止翻页",
+                            time.strftime('%Y-%m-%d %H:%M', time.localtime(oldest_live / 1000)),
+                        )
+                        break
 
             # 昵称：API 首条帖子的 user.screen_name（与帖子同源，无渲染竞态）。
             # 本轮无帖（窗口内无新帖）时拿不到 → 回落到 DOM，再不行用传入的 user_id。
@@ -555,6 +572,111 @@ class XueqiuCrawler:
         finally:
             user_page.close()
         return screen_name, all_statuses
+
+    def get_user_hot_posts(self, user_id, pages=5):
+        """热门 tab 前 N 页（2026-09-28 新增，新博主首采第 3 步）。
+
+        请求形态＝UI 点「热门」标签：同一 timeline 端点 + `type=9`（实测可翻页，
+        该维度总量约 200 条、每页 20）。**不做端点降级**——旧版路径 + type=9 的
+        排序行为未验证，降级后若静默返回「全部」排序，热门数据就被换成时间线，
+        宁缺毋滥：单页失败重试一次，再失败就停手保留已取页数。
+        热门页 1 含置顶帖（mark=1），由上层有意保留（首采一次性，无重复采集风险）。
+        """
+        hot = []
+        user_page = self._ego.new_page()
+        try:
+            user_page.goto(
+                f"https://www.xueqiu.com/u/{user_id}",
+                wait_until="domcontentloaded",
+                timeout=15000,
+            )
+            for page_num in range(1, pages + 1):
+                time.sleep(config.REQUEST_DELAY)
+                result = self._fetch_timeline_page(user_page, user_id, page_num, type_code=9)
+                if not result.get("ok"):
+                    time.sleep(5)
+                    result = self._fetch_timeline_page(user_page, user_id, page_num, type_code=9)
+                if not result.get("ok"):
+                    logger.warning(
+                        "热门第 %d 页失败（%s）——保留已取的 %d 条，余下放弃",
+                        page_num, result.get("error"), len(hot))
+                    self._shot(f"hot-fail-page{page_num}", page=user_page)
+                    break
+                statuses = result.get("statuses", [])
+                if not statuses:
+                    break
+                hot.extend(statuses)
+                logger.info(f"  热门第 {page_num} 页获取 {len(statuses)} 条 (共 {len(hot)})")
+        finally:
+            user_page.close()
+        return hot
+
+    def get_user_profile(self, user_id):
+        """主页档案（2026-09-28 新增，新博主首采第 1 步）：uid/昵称/头像/简介/粉丝/总帖数。
+
+        头像取 DOM（xavatar 大图，页面上就是 240x240）；API 的 `profile_image_url`
+        是逗号拼接的多尺寸串，仅作兜底（取首段补域名）。
+        昵称/简介/粉丝数取 timeline API 首条帖的 `user` 对象——与帖子数据同源、
+        无 DOM 渲染竞态（侧栏「用户推荐」顶替昵称的坑见 get_user_all_posts_with_info）。
+        """
+        profile = {"uid": str(user_id), "screen_name": "", "avatar": "", "description": "",
+                   "followers_count": 0, "status_count": 0}
+        user_page = self._ego.new_page()
+        try:
+            user_page.goto(
+                f"https://www.xueqiu.com/u/{user_id}",
+                wait_until="domcontentloaded",
+                timeout=15000,
+            )
+            try:
+                user_page.wait_for_selector("img", timeout=5000)
+            except Exception:
+                pass
+            dom = user_page.evaluate("""() => {
+                const uid = (location.pathname.match(/u\\/(\\d+)/) || [])[1] || '';
+                let avatar = '';
+                for (const img of document.querySelectorAll('img')) {
+                    const cls = (img.className || '') + ' ' +
+                        ((img.parentElement && img.parentElement.className) || '');
+                    const src = img.currentSrc || img.src || '';
+                    if (/avatar|profile/i.test(cls) && /xavatar\\.imedao\\.com/.test(src)) {
+                        avatar = src; break;
+                    }
+                }
+                if (!avatar) {
+                    for (const img of document.querySelectorAll('img')) {
+                        const src = img.currentSrc || img.src || '';
+                        if (/xavatar\\.imedao\\.com/.test(src) &&
+                            !/!50x50|!30x30|badge|medal|emoji/.test(src)) { avatar = src; break; }
+                    }
+                }
+                return { uid, avatar };
+            }""")
+            if dom.get("uid"):
+                profile["uid"] = dom["uid"]
+            profile["avatar"] = dom.get("avatar") or ""
+            time.sleep(config.REQUEST_DELAY)
+            uid = profile["uid"] or user_id
+            result = self._fetch_timeline_page(user_page, uid, 1)
+            if not result.get("ok") and self._degrade_timeline():
+                result = self._fetch_timeline_page(user_page, uid, 1)
+            if result.get("ok"):
+                statuses = result.get("statuses") or []
+                u = (statuses[0].get("user") or {}) if statuses else {}
+                profile["screen_name"] = str(u.get("screen_name") or "").strip()
+                profile["description"] = str(u.get("description") or "").strip()
+                profile["followers_count"] = int(u.get("followers_count") or 0)
+                profile["status_count"] = int(u.get("status_count") or 0)
+                if not profile["avatar"]:
+                    first = str(u.get("profile_image_url") or "").split(",")[0].strip()
+                    if first:
+                        profile["avatar"] = first if first.startswith("http") \
+                            else f"https://xavatar.imedao.com/{first}"
+            else:
+                logger.warning("档案 API 取失败（%s）——仅 DOM 侧 uid/头像可用", result.get("error"))
+        finally:
+            user_page.close()
+        return profile
 
     def close(self):
         """断开浏览器连接

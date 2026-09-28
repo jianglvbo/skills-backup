@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 import logging
 import re
 import sys
@@ -100,9 +101,11 @@ def run(symbol, min_reply_count=None, max_pages=None, output_dir=None):
 
 
 def run_user(user_id, max_pages=10, output_dir=None, days=None, column_only=False,
-             from_time=None, to_time=None, outfile=None):
+             from_time=None, to_time=None, outfile=None, hot_pages=0):
     """爬取指定用户的帖子并生成帖子集文件。user_id 可以是数字ID或用户名。
-    时间窗：优先 --from/--to 精确窗口；否则 --days 相对窗口（兼容）"""
+    时间窗：优先 --from/--to 精确窗口；否则 --days 相对窗口（兼容）。
+    hot_pages（2026-09-28 新博主首采）：热门 tab（type=9）前 N 页——窗口过滤之后
+    按 URL 去重并入，不受时间窗裁剪；热门页 1 的置顶帖有意保留。"""
     if output_dir is None:
         output_dir = config.DEFAULT_OUTPUT_DIR
 
@@ -117,10 +120,14 @@ def run_user(user_id, max_pages=10, output_dir=None, days=None, column_only=Fals
 
         logger.info(f"开始爬取用户 {user_id} 的帖子...")
 
+        # 窗口起点先算好传给翻页器：翻到边界自动停（翻页器内部排除置顶帖再判）
+        lo = _parse_window(from_time) if from_time else (
+            int((time.time() - days * 86400) * 1000) if days else None)
+        hi = _parse_window(to_time) if to_time else None
+
         # 一次导航同时获取用户名和帖子
         screen_name, all_posts = crawler.get_user_all_posts_with_info(
-            user_id, max_pages=max_pages
-        )
+            user_id, max_pages=max_pages, window_lo_ms=lo)
         logger.info(f"用户: {screen_name}，共获取 {len(all_posts)} 条帖子")
 
         if not all_posts:
@@ -128,13 +135,13 @@ def run_user(user_id, max_pages=10, output_dir=None, days=None, column_only=Fals
             return None
 
         # 时间窗过滤：置顶帖排除（时间旧且非窗口内容）+ created_at 范围
-        if from_time is not None or to_time is not None or days:
-            lo = _parse_window(from_time) if from_time else (
-                int((time.time() - days * 86400) * 1000) if days else None
-            )
-            hi = _parse_window(to_time) if to_time else None
+        if lo is not None or hi is not None:
             before = len(all_posts)
-            oldest = min((p.get("created_at") or 0) for p in all_posts) or 0
+            # 窗口覆盖门槛用「非置顶」的最旧帖：置顶帖是几年前的旧帖、常年挂第 1 页，
+            # 把它算进 oldest 会让门槛永远不触发（exit 3 失灵 → 断点误推进 → 漏采）
+            live_ts = [p.get("created_at") or 0 for p in all_posts
+                       if not (p.get("mark") == 1 or p.get("pinned"))]
+            oldest = min(live_ts) if live_ts else 0
             all_posts = [
                 p for p in all_posts
                 if not (p.get("mark") == 1 or p.get("pinned"))  # 置顶帖不纳入窗口
@@ -146,8 +153,9 @@ def run_user(user_id, max_pages=10, output_dir=None, days=None, column_only=Fals
             # 窗口起点覆盖门禁（2026-09-24 补齐）：原先只在「过滤后全空」时检查页数是否够，
             # 漏洞是——被 WAF 中途截断但已捞到几条时，会静默判成功并推进 cutoff，
             # 中间那段永久漏采。现在：**只要页数用满且最旧帖仍新于窗口起点，就判页数不足**。
-            # 「页数用满」的判据：累计条数 ≥ max_pages × 每页条数（spyder 实际生效值，
-            # 降级端点会变成 20，故取 crawler 实例上的真实值）。
+            # 「页数用满」的判据：累计条数 ≥ max_pages × 每页条数（服务端固定 20；
+            # 2026-09-28 起请求不再拼 count，与 UI 一致）。翻页器提前触边界自动停时
+            # before < max_pages×20，门槛不会误报。
             page_size = getattr(crawler, "_timeline_count", 20) or 20
             if lo and oldest and oldest > lo and before >= max_pages * page_size:
                 logger.error(
@@ -160,6 +168,27 @@ def run_user(user_id, max_pages=10, output_dir=None, days=None, column_only=Fals
             if not all_posts:
                 logger.warning("过滤后无帖子（窗口内无新帖，采集完成）")
                 return NO_NEW_POSTS
+
+        # 热门 tab 前 N 页（新博主首采第 3 步）：必须在窗口过滤**之后**合并——
+        # 热门里会带回超出窗口的高赞老帖，先合并会被时间窗裁掉
+        if hot_pages > 0:
+            hot = crawler.get_user_hot_posts(user_id, pages=hot_pages)
+            seen = set()
+            for p in all_posts:
+                seen.add(p.get("id"))
+                if p.get("target"):
+                    seen.add(p.get("target"))
+            added = 0
+            for p in hot:
+                if p.get("id") in seen or (p.get("target") and p.get("target") in seen):
+                    continue
+                p["from_hot"] = True
+                all_posts.append(p)
+                seen.add(p.get("id"))
+                if p.get("target"):
+                    seen.add(p.get("target"))
+                added += 1
+            logger.info(f"热门 tab 前 {hot_pages} 页并入 {added} 条（与全部 tab 去重后）")
 
         # 仅保留专栏文章
         if column_only:
@@ -207,9 +236,28 @@ def run_search(keyword):
         crawler.close()
 
 
+def run_profile(user_id):
+    """新博主首采第 1 步：开主页抓档案（uid/昵称/头像/简介/粉丝/总帖数），打印 JSON。
+    调用方（agent）据此走看板 add_blogger 落库（含 avatar 字段，2026-09-28 服务端已支持）。"""
+    crawler = XueqiuCrawler()
+    try:
+        if not str(user_id).isdigit():
+            logger.info(f"搜索用户: {user_id}")
+            user_id, resolved_name = crawler.find_user_id(user_id)
+            logger.info(f"已解析: {resolved_name} -> {user_id}")
+        profile = crawler.get_user_profile(user_id)
+        if not profile.get("screen_name"):
+            raise CrawlerError(f"档案抓取失败：昵称为空（uid={profile.get('uid')}）——"
+                               f"检查登录态/风控（空页一律按拦截处理）")
+        print(json.dumps(profile, ensure_ascii=False, indent=1))
+        return profile
+    finally:
+        crawler.close()
+
+
 def main():
     # 兼容旧用法：如果第一个参数不是已知子命令，自动当作 stock 子命令
-    if len(sys.argv) > 1 and sys.argv[1] not in ("stock", "user", "search", "feed", "-h", "--help"):
+    if len(sys.argv) > 1 and sys.argv[1] not in ("stock", "user", "search", "feed", "profile", "-h", "--help"):
         sys.argv.insert(1, "stock")
 
     parser = argparse.ArgumentParser(description="雪球爬虫工具")
@@ -232,10 +280,16 @@ def main():
     sp_user.add_argument("--column", action="store_true", help="仅抓取专栏文章")
     sp_user.add_argument("--output", default=config.DEFAULT_OUTPUT_DIR)
     sp_user.add_argument("--outfile", default=None, help="输出文件名（默认 雪球采集-{昵称}-{日期}.md）")
+    sp_user.add_argument("--hot-pages", type=int, default=0,
+                         help="热门 tab（type=9）前 N 页并入帖子集（新博主首采用 5；日常增量不传）")
 
     # search 子命令
     sp_search = subparsers.add_parser("search", help="搜索雪球用户")
     sp_search.add_argument("keyword", help="搜索关键词（用户名）")
+
+    # profile 子命令（新博主首采第 1 步：主页档案 → 落库登记）
+    sp_profile = subparsers.add_parser("profile", help="抓取用户主页档案（uid/昵称/头像/简介/粉丝），打印 JSON")
+    sp_profile.add_argument("user_id", help="用户ID或用户名（用户名会自动搜索解析）")
 
     # feed 子命令（流式采集——日常增量缺省路径，2026-09-26 实测定型）
     sp_feed = subparsers.add_parser("feed", help="流式采集关注/热门时间线（多博主帖子集）")
@@ -263,7 +317,11 @@ def main():
             result = run_user(args.user_id, args.max_pages, args.output,
                               getattr(args, 'days', None), getattr(args, 'column', False),
                               getattr(args, 'from_time', None), getattr(args, 'to_time', None),
-                              getattr(args, 'outfile', None))
+                              getattr(args, 'outfile', None),
+                              getattr(args, 'hot_pages', 0) or 0)
+        elif args.command == "profile":
+            run_profile(args.user_id)
+            return
         elif args.command == "search":
             run_search(args.keyword)
             return
