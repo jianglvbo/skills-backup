@@ -14,5 +14,6 @@
     "Click a button on the screen",
     "Read text content from a window on screen"
   ],
-  "iconSource": "letter:auto"
+  "iconSource": "letter:auto",
+  "installedContentHash": "sha256:3067ac3511047c737d864d1a798ce32a280952529b04908a8958146c6233f24d"
 }

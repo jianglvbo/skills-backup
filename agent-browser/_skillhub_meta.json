@@ -3,5 +3,6 @@
   "name": "agent-browser",
   "version": "1.0.0",
   "installedAt": 1781892852485,
-  "source": "skillhub"
+  "source": "skillhub",
+  "installedContentHash": "sha256:9513346c4b67ae26ba5580df5df59294feca8c3bce4adc1bd4204cdc384eb181"
 }

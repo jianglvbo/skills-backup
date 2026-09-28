@@ -14,5 +14,6 @@
     "Search a keyword across multiple engines simultaneously",
     "Use Bing to search technical documentation"
   ],
-  "iconSource": "letter:auto"
+  "iconSource": "letter:auto",
+  "installedContentHash": "sha256:f5f0cca661483c40c6218e86e3138959b2d1226b2c58964f762bbf1be3d6b50e"
 }
