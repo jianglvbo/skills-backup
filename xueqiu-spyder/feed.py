@@ -177,8 +177,11 @@ def tidy_article(t):
     t = (t or "").strip()
     t = re.sub(r"(收起|展开|查看对话|查看图片)\s*$", "", t).strip()
     t = re.sub(r"\s*·\s*转发\s*\d+\s*·\s*讨论\s*\d+\s*·\s*赞\s*\d+\s*$", "", t).strip()
+    # 保留段落分段（2026-09-28）：innerText 的 \n 只出现在块边界/<br>，是真实换行不是视觉折行
+    # （库内 80 条样本实测：\n 前多为。？！，后为新段落开头）。只合并两类明显半句断行——
+    # 下一行以标点开头（段落不会以标点起头）、本行以开括号收尾；不再按行尾标点全量压行，
+    # 否则「谁能笑到最后？\n汇丰在1月7日…」这类真分段会被合并成一行。
     t = re.sub(r"\n([，。、；：）」！？])", r"\1", t)
-    t = re.sub(r"([，、；：）」！？])\n(?!\n)", r"\1", t)
     t = re.sub(r"([（「])\n", r"\1", t)
     return t
 
@@ -199,7 +202,8 @@ def clean_quote(t):
 def first_sentence(t):
     t = (t or "").strip()
     m = re.match(r"^(.*?[。！？])", t, re.S)
-    return m.group(1).strip() if (m and m.group(1).strip()) else t[:30]
+    # 标题必须单行：正文分段后首句可能跨段，\n 进标题会撑破帖子集 md 的「## 标题」结构
+    return re.sub(r"\s+", " ", m.group(1)).strip() if (m and m.group(1).strip()) else re.sub(r"\s+", " ", t[:30]).strip()
 
 
 def derive_time(label, anchor_ms):
