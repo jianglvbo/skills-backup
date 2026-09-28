@@ -45,7 +45,7 @@ compatibility: 通用
 
 按 `investment-framework/references/review-rules.md`「复核建议处理（审查首步）」执行：`console_statement_review(action=list, status=open)` 取全部未处理建议（返回含该言论当前 `contentType/stance/target/viewText` 上下文）→ 逐条按建议用 `blogger_statement(action=update)` 修正归类 → `console_statement_review(action=apply)` 置已处理；判断建议不成立则 `action=delete` 并在报告说明理由。**本步未处理完，不得进入 C/S 维度**；修正结果并入审查报告。
 
-**边界（审查只管一个首步来源）**：`statement_review_sub` 的左滑复核建议（第零步）。（原 ② `refine_review` 提炼链路复核已于 2026-09-26 随提炼步骤功能下线，framework-rules #54。）`pending_decision` 待决策队列——含 `verdict=delete` 删除清单——**归 `investment-refine` 第一步「1.1 清待决策队列」，审查不碰**（用户拍板：已决策的跟着提炼走，不跟审核；framework-rules #49/#50）。
+**边界（首步来源按 kind 分流，2026-09-27）**：① `statement_review_sub` 的左滑复核建议（原 ② `refine_review` 已于 2026-09-26 随提炼步骤功能下线）；② `pending_decision` 的**审查类已裁决项**（`kind=审查裁决` 且已答复未内化）——按用户答复执行修复 → `internalize` 写落点，明细入报告「审查裁决执行」节（细则见 review-rules.md「复核建议处理」第 5 点）。提炼类条目（含 `verdict=delete` 删除清单）仍**归 `investment-refine` 第一步「1.1 清待决策队列」，审查不碰**。
 
 ### 内容审查（编号 C1-C10）
 
@@ -87,6 +87,7 @@ compatibility: 通用
 - 将条目文件移出 vault（移至系统废纸篓，完成真删），记录清理了 M 处引用
 **R5**：输出「待回收处置报告」，**必须给出每条回收的理由**（超 7 天冷静期 + 标记日期 + 清理引用数）；未到期者提示剩余天数
 **R6（收尾 · 必做）**：**规律固化**——按 `review-rules.md`「规律固化（审查收尾步）」把本次全部发现（C 维度 + S 维度 + 复核建议处理）强制二分为「一次性数据问题 / 可泛化规律」；可泛化的必须当场回写对应规范（`framework-rules.md` 对应编号 / `investment-refine/SKILL.md` 判据 / 操作门脚本加校验项），并在落库 record 的 summary 与汇报中写明「本次固化了什么（文件+条目）、哪些判定一次性、未固化理由」。**未执行 R6 不得结束审查**。
+**R7（收尾 · 上报待决策，2026-09-27 新增）**：按 `review-rules.md`「审查发现上报待决策」把无法自行处置、需用户拍板的发现（矛盾边界/删除保留/迁移去留/归属判定）上报 `pending_decision(kind=审查裁决)`，由下轮审查首步闭环执行；机械可修的不上报。
 
 ---
 
@@ -132,6 +133,6 @@ compatibility: 通用
 
 > **只列"无法自动化"的语义红线**。C1-C10 / S1-S8 / R1-R5 各步骤按上文流程执行即可，不必在此重述；frontmatter 字段/顺序/引号/wikilink/脚注格式/标签白名单/空原文链接等由 `investment-review/scripts/vault_review.py` 与 `investment-framework/scripts/verify-format.py` 作为门禁自动判定（改格式规则改脚本，不加人工清单）。
 
-- [ ] **没误碰待决策队列**：审查只处理 `statement_review_sub`（第零步；`refine_review` 链路复核已于 2026-09-26 下线）；`pending_decision` 归 investment-refine 第一步「1.1 清待决策队列」——若误清了（含 `verdict=delete` 清单），需在报告说明并把未内化项退回提炼侧。
+- [ ] **待决策按 kind 分流不越界（2026-09-27）**：提炼类条目（含 `verdict=delete` 清单）归 investment-refine，审查不碰——误清需退回并在报告说明；`kind=审查裁决` 的已裁决项由首步执行修复并 internalize，收尾把未决发现带 options/excerpt 上报（R7）。
 - [ ] **只出报告、不改文件**；关联备注提案每条都有**内容层面的依据**（非编撰关系，承材料收集师"不造假"）。
 - [ ] 归类正确性覆盖"博主层条目作者是否均在博主控制台登记、未登记者误挂需迁其他层"（#12/#38 反向校验，机器判之外的人工确认）。
