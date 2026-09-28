@@ -373,7 +373,9 @@ managed skill removed from it. If they only want one skill or one folder taken o
 available for future deployments, use `skills undeploy` or `folders undeploy` instead.
 
 `agents list` shows which agents are actually installed here. Two of them share a destination (`~/.agents/skills`),
-so a skill deployed to either appears in the same directory — don't read one copy as two deployments.
+so a skill deployed to either appears in the same directory — don't read one copy as two deployments. That
+directory does not exist on this machine since 2026-09-28 (it was the other system's state home — see Pitfalls);
+deploying to `cline` or `warp` will create it again.
 
 ## Typical workflows
 
@@ -423,4 +425,8 @@ Report which skills actually refreshed (`refreshed: true` in the JSON) vs which 
 - **`presets …` and `skills tag …` don't exist** → these are not deprecated flags but unknown subcommands; if a recollection of them surfaces, re-derive the command from `"$SM" folders --help` / `"$SM" skills --help`.
 - **Adopted skills can't be `update`d from git** → `npx skills add` and manual `git clone` don't leave source metadata, so adopt has to treat them as `local`. Re-point them with `skills set-source`. Do **not** reach for `adopt --git-url` here: adopt only ever creates new library entries, and it fails *late* — `--dry-run` returns `ok: true` with the skill sitting in `skipped`, and only the real run errors with `--git-url requires exactly one adoptable skill, found 0`. Do **not** remove-then-reinstall either — that drops the skill id, and with it its folder and every per-agent deployment.
 - **Tried to make a skill `local` by editing the DB** → the running app writes it back. Use `skills set-source <skill> --local`, which also rewrites the metadata file. See "Stop tracking upstream".
+- **A real skill directory sits inside an agent's skills dir instead of a symlink** → the only legitimate library on this machine is `~/.skills-manager/skills/`; every agent directory (including `~/.agents/skills`, which is `cline`/`warp`'s `skills_dir`) may hold symlinks only. Self-check: `find ~/.qoder-cn/skills ~/.zcode/skills ~/.agents/skills -maxdepth 1 -type d ! -name skills` — anything printed is a body that never got moved into the library.
+- **Someone ran `npx skills …`** → that's a second, structurally identical system with its own library. It treats `~/.agents` as its state home (`skills/` holds the bodies, `.skill-lock.json` is its ledger, version 3) and deploys **relative** symlinks (`../../.agents/skills/<name>`) into agent dirs, so `skills-manager` neither sees nor repairs them. Both ledgers were reconciled on 2026-09-28: the extra library and its lock file were deleted, installs go through `$SM` only. Dangling links are silent — a skill just vanishes with no error.
+- **`adopt` left the source directory and created no deployment** → adopt **copies** into the library: it never deletes the source and writes no `skill_targets` row, so `skills status` shows 0 deployments afterwards. Deploy explicitly with `skills deploy`, then remove the source body yourself.
+- **Joining a folder pushed a skill to an unexpected agent** → folders claim agents (`folder_targets`), so membership alone subscribes every member to that folder's deployment set. Check `folders show <ref>` (claimed vs on-disk) before adding, and `folders targets <ref> --agent …` to change the claim rather than the membership.
 - Use `--dry-run` before bulk remove, folder delete, deploy, or undeploy operations. Use `check` before `update`. Take a `sqlite3 ".backup"` copy before any DB touch.
