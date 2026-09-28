@@ -38,7 +38,7 @@
 --     ③ 关联六表（全部 _rel）：statement_blogger_rel（言论必挂博主）/ statement_stock_rel /
 --        statement_industry_rel / statement_market_rel / stock_industry_rel（个股必挂行业）/
 --        stock_market_rel。
---     ④ 一条帖子只落一张言论表（优先级命中即止），正文完整保留帖子含义；买卖记录**不含操作字段**。
+--     ④ 一条帖子只落一张言论表（优先级命中即止），正文完整保留帖子含义；买卖**不含操作字段**。
 --     ⑤ 弃用对象一律**删前备份、然后 DROP**，不留 _del 残表；派生索引（vault 文件/标签）不落库，内存扫描。
 --     ⑥ 表注释只写「XX表/XX子表」，字段注释平实直述，码值字段标注 `dict.type`。
 --   2026-09-28 重新导出（审计发现快照滞后）:
@@ -100,11 +100,11 @@ INSERT INTO dict (type, code, name, sort_order, is_enabled, remark) VALUES
   ('platform', 'xiaohongshu', '小红书', 3, 1, '小红书平台'),
   ('platform', 'xueqiu_deleted', '雪球已销户', 3, 1, '雪球账号已注销，保留历史言论与留档，不再采集'),
   ('post_content_type', 'research', '研究', 1, 1, '含数据/估值/行业结构的可复用分析；已沉淀框架文件则观点列写见 [[分类/文件名]]；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
-  ('post_content_type', 'predict', '预测记录', 2, 1, '对未来的判断（不强制可验证，2026-09-14 放宽）：①方向（stance 必填）②未来指向（时间窗或事件条件；"下一轮牛市""至少 5 年内"这类粗口径也算）。有目标位/幅度/点位则写进信号列、可进预测控制台闭环；没有不影响归类。可判对错不是门槛；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
+  ('post_content_type', 'predict', '预测', 2, 1, '对未来的判断（不强制可验证，2026-09-14 放宽）：①方向（stance 必填）②未来指向（时间窗或事件条件；"下一轮牛市""至少 5 年内"这类粗口径也算）。有目标位/幅度/点位则写进信号列、可进预测控制台闭环；没有不影响归类。可判对错不是门槛；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
   ('post_content_type', 'view', '观点', 3, 1, '对个股/行业/市场/政策的当下判断（无未来指向），须带方向；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
-  ('post_content_type', 'insight', '心得总结', 4, 1, '投资心得、方法论、复盘框架；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
+  ('post_content_type', 'insight', '心得', 4, 1, '投资心得、方法论、复盘框架；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
   ('post_content_type', 'chat', '闲聊', 5, 1, '仅当能刻画「擅长与局限/投资心态」时留存，否则舍弃；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
-  ('post_content_type', 'trade', '买卖记录', 6, 1, '明确买卖动作（须当期性：当下/近期动作或当前仓位；历史回顾归 insight）；买卖帖只落 statement_trade 一行（一帖一表），原 blogger_trades 已并入并退役为 blogger_trades_del；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
+  ('post_content_type', 'trade', '买卖', 6, 1, '明确买卖动作（须当期性：当下/近期动作或当前仓位；历史回顾归 insight）；买卖帖只落 statement_trade 一行（一帖一表），原 blogger_trades 已并入并退役为 blogger_trades_del；判定优先级见 refine-schema §六（trade>predict>research>insight>view>chat），本 sort_order 仅看板分节顺序'),
   ('prediction_status', 'pending', '待验证', 1, 1, '尚未到验证时点'),
   ('prediction_status', 'verifying', '验证中', 2, 1, '已有部分验证证据'),
   ('prediction_status', 'verified_correct', '已验证(正确)', 3, 1, '方向正确（数值偏差进验证备注）'),
@@ -258,7 +258,7 @@ CREATE TABLE `console_stat_daily` (
   `stance_group` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '方向档：bull 看多 / bear 看空 / neut 中性 / none 未定向',
   `stmt_count` int unsigned NOT NULL DEFAULT '0' COMMENT '言论条数',
   `blogger_count` int unsigned NOT NULL DEFAULT '0' COMMENT '涉及博主数（当天去重）',
-  `trade_count` int unsigned NOT NULL DEFAULT '0' COMMENT '其中买卖记录条数',
+  `trade_count` int unsigned NOT NULL DEFAULT '0' COMMENT '其中买卖条数',
   `created_datetime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_datetime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间（重算会刷新）',
   PRIMARY KEY (`stat_date`,`dim_code`,`subject_id`,`stance_group`),
@@ -588,7 +588,7 @@ CREATE TABLE `statement_insight` (
   KEY `idx_blogger_date` (`blogger_name`,`view_date`),
   KEY `idx_review` (`is_review_required`),
   KEY `idx_is_read` (`is_read`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='心得总结帖子表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='心得帖子表';
 
 CREATE TABLE `statement_market_index_rel` (
   `statement_id` bigint unsigned NOT NULL COMMENT '言论 id，指向六张言论表之一',
@@ -647,7 +647,7 @@ CREATE TABLE `statement_predict` (
   KEY `idx_blogger_date` (`blogger_name`,`view_date`),
   KEY `idx_review` (`is_review_required`),
   KEY `idx_is_read` (`is_read`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='预测记录帖子表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='预测帖子表';
 
 CREATE TABLE `statement_research` (
   `id` bigint unsigned NOT NULL COMMENT '帖子 id，六张帖子表全局唯一',
@@ -742,7 +742,7 @@ CREATE TABLE `statement_trade` (
   KEY `idx_blogger_date` (`blogger_name`,`view_date`),
   KEY `idx_review` (`is_review_required`),
   KEY `idx_is_read` (`is_read`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='买卖记录帖子表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='买卖帖子表';
 
 CREATE TABLE `statement_verify_sub` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '自增主键',

@@ -107,8 +107,8 @@
 - **用途**：已登记博主档案条目；仅博主控制台已登记博主可建（framework-rules #12）；**frontmatter 仅 7 个笔记属性字段**（title/platform/special_following/summary/info_cutoff/createDate/updateDate，见 #36），无 star/delete/tags/source
 - **擅长与局限**：能力圈（具体领域、方法、标的类型）+ 盲区/风险点
 - **言论追踪**：博主零散发言中敏锐的观点性言论；4 个 `###` 子表分类见 framework-rules #30（具象化/观点/信号/互动）；时间倒序；原文链接必填真实 URL
-- **个股买卖记录**：博主明确买卖动作；操作枚举/价格取值/备注规则见 framework-rules #31；时间倒序
-- **预测记录（准确率追踪）**：预测内容 | 时间 | 状态（已验证/验证中/待验证/证伪）| 原文链接，见 framework-rules #35
+- **个股买卖**：博主明确买卖动作；操作枚举/价格取值/备注规则见 framework-rules #31；时间倒序
+- **预测（准确率追踪）**：预测内容 | 时间 | 状态（已验证/验证中/待验证/证伪）| 原文链接，见 framework-rules #35
 - 三表原文链接**禁止留空 `-`**；无来源帖链接则该行不建（framework-rules #35）
 
 ## 模板路径表（自 SKILL.md 下沉）

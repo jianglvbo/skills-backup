@@ -31,7 +31,7 @@ import os, re, sys, json, glob
 from pathlib import Path
 from collections import Counter
 
-SECTIONS_REQUIRED = ["擅长与局限", "言论追踪", "个股买卖记录", "预测记录"]
+SECTIONS_REQUIRED = ["擅长与局限", "言论追踪", "个股买卖", "预测"]
 PLACEHOLDER_TARGETS = {"", "—", "-", "/", "暂无", "持仓", "未点名", "无"}
 
 

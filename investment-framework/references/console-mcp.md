@@ -25,7 +25,7 @@
 | 文件操作 | `list_files`、`read_file`、`write_file`、`delete_file`、`unmark_delete`、`list_pending_delete`、`purge_pending_delete` |
 | 博主 | `list_bloggers`、`get_blogger`、`add_blogger`（支持 avatar）、`update_blogger`、`remove_blogger`、`restore_blogger`、`purge_blogger`、`list_recycle_bloggers` |
 | 标签 | `list_tags` |
-| 言论追踪 | `blogger_statement`（六分法 `contentType` 落库：research/predict/view/insight/chat，trade 走 `blogger_trade`）、`blogger_trade`（买卖记录）、`console_statement_review`（言论卡复核建议闭环）、`statement_read`（待读/已读）、`statement_star`（星标） |
+| 言论追踪 | `blogger_statement`（六分法 `contentType` 落库：research/predict/view/insight/chat，trade 走 `blogger_trade`）、`blogger_trade`（买卖）、`console_statement_review`（言论卡复核建议闭环）、`statement_read`（待读/已读）、`statement_star`（星标） |
 | 原文库 | `post_history`（采集落点 + 提炼前原文：check/get/upsert/stats/mark） |
 | 实体与别名 | `stock_alias`（别名/主营词）、`stock_former_name`（曾用名）、`stock_watch`（自选/备注）、`console_ensure_subject`（建主题，行业/指数过标准表门禁）、`industry_sw_list`（申万标准表）、`index_catalog_list`（指数目录）、`industry_follow`（关注行业） |
 | 预测控制台 | `console_list_subjects`、`console_get_subject`、`console_add_prediction`、`console_update_status`、`console_stats`（方向统计查询/重算） |

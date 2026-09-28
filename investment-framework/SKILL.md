@@ -54,7 +54,7 @@ compatibility: 通用
 | 仅粗加工（非雪球来源） | 粗加工、归档 | investment-coarse-processor |
 | 仅提炼（vault 常规路径） | 提炼 | investment-refine（前置：原始资源已存在该文档且 `status=待提炼`；否则先从粗制品粗加工） |
 | 审查 | 审查、review、健康度 | investment-review |
-| 预测控制台 | 预测、预测记录、预测控制台 | prediction-console（独立 skill，不经本编排者串联） |
+| 预测控制台 | 预测、预测控制台 | prediction-console（独立 skill，不经本编排者串联） |
 | 查看全貌 | 投资框架、框架全貌、pipeline | 输出框架说明 |
 
 ### 提炼输入锚点判定
