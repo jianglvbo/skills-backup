@@ -4,7 +4,7 @@ description: >
   投资知识框架全局编排者。管理三大归属层（我的/博主/其他）+ 六大分类（分析框架/交易体系/投资心态/投资心得/个股/行业）+ 宏观。
   定义流水线（粗制品→粗加工→原始资源→提炼→审查）、模板表、路径表、全局规则、审查机制。
   触发词：「投资框架」「框架全貌」「pipeline」「编排」。
-  排除条件（业务环节词交执行器，本 skill 不抢）：「粗加工」「归档」「整理帖子」→ coarse-processor；「提炼」→ refine；「审查」「review」「健康度」→ review；「采集」「抓取」→ xueqiu-spyder；「预测」「预测控制台」「记录预测」→ prediction-console。
+  排除条件（业务环节词交执行器，本 skill 不抢）：「粗加工」「归档」「整理帖子」→ coarse-processor；「提炼」→ refine；「审查」「review」「健康度」→ review；「采集」「抓取」→ xueqiu-spyder；「预测」「预测控制台」「记录预测」→ prediction-console；「下发任务」「建任务」→ assign-tasks。
   区别于 xueqiu-spyder（帖子采集，编排+工具一体）：本 skill 是路径和模板的唯一持有者，负责串联全部加工模块。
 license: MIT
 agent_created: true
@@ -54,6 +54,7 @@ compatibility: 通用
 | 仅粗加工（非雪球来源） | 粗加工、归档 | investment-coarse-processor |
 | 仅提炼（vault 常规路径） | 提炼 | investment-refine（前置：原始资源已存在该文档且 `status=待提炼`；否则先从粗制品粗加工） |
 | 审查 | 审查、review、健康度 | investment-review |
+| 给用户下发任务 | 下发任务、建任务、这条需要用户处理 | assign-tasks（独立 skill；与待决策队列的分流判据在其第一步） |
 | 预测控制台 | 预测、预测控制台 | prediction-console（独立 skill，不经本编排者串联） |
 | 查看全貌 | 投资框架、框架全貌、pipeline | 输出框架说明 |
 

@@ -84,6 +84,7 @@ compatibility: 通用
 - **上报什么**：归类边界拿不准（predict↔view、trade↔insight、是否算 chat）；标的名解析不出实体（`blogger_statement` 会自动报一类，其余补齐）；博主自造称呼/代号有歧义；时间存疑（原帖无日期、跨度异常）；规则确实没写到的新情况。**凡是置了 `is_review_required=1` 的，一律必须同时上报**（标记只是痕迹，裁决走待决策队列；只打标记不上报＝死信，用户看不见）——见 framework-rules #53。
 - **怎么报**（硬要求）：`question` 一句话能独立看懂；**必须给候选 `options`**（`/` 分隔，让用户点一下就完事）；`excerpt` 放原文片段；能定位就带 `statementId` + `sourceUrl`；`kind` 用 `归类待定/标的名解析不出/称呼歧义/时间存疑/数据缺口/规则待定/其他`。
 - **别重复问**：上报前先 `action=list`（可按 kind）搜一遍队列与既有答复，同一个问题只问一次；**规则里已经写明的自己判**（先查 `framework-rules.md` / `refine-schema.md` / `stock-mention-rules.md`），别把该自己判断的推给用户。
+- **要用户「做动作」的不是问句**：如果这件事不是点一下选项就能终结，而是要用户补资料/改数据/线下办事、做完还要后续收尾 → 按 assign-tasks skill 下发任务（`MCP note_item type=task source=agent`），别塞进待决策队列；分流判据见该 skill 第一步。
 
 ### 第二步：分析原文
 
