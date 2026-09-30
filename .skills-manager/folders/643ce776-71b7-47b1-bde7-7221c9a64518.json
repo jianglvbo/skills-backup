@@ -5,6 +5,7 @@
   "parent_id": "73cf863f-4b56-453c-85f6-f0f2873fb748",
   "sort_order": 0,
   "targets": [
+    "qoder",
     "qwen_work"
   ]
 }
