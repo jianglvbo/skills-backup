@@ -38,7 +38,13 @@ def _strip_html(text):
         return ""
     # 先保留 img 的 alt/title 文本（雪球表情/图片占位）
     text = re.sub(r"<img[^>]*?(?:alt|title)=\"([^\"]*)\"[^>]*/?>", r"\1", text, flags=re.I)
+    # <br>/块级闭合标签是段落边界，剥标签前先落成换行（2026-10-01 用户报「原文是有格式的」：
+    # 此前 <[^>]+> 一刀切把 <br></p> 抹成空串，整段帖子压成一行，段落结构在入库前就丢了）
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</(?:p|div|blockquote|li|h[1-6])>", "\n", text, flags=re.I)
     text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)  # 标签删除后残留的行尾空白
+    text = re.sub(r"\n{3,}", "\n\n", text)  # 连续空行收敛成「一段一空行」
     text = re.sub(r"\$([^$]+)\$", r"\1", text)  # 去掉 $股票名(代码)$ 格式
     # 去掉详情页自带的来源前缀
     text = re.sub(r"^来源：雪球App，作者：[^）]+）", "", text)

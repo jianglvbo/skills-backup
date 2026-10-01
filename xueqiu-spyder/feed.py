@@ -24,6 +24,7 @@ import json
 import os
 import random
 import re
+import sys
 import time
 import urllib.request
 from datetime import datetime, timedelta
@@ -117,7 +118,8 @@ FEED_JS = r"""
   //      [class*=forward] 一条就够（实测 411156409：自己的 a.co-img-link 留下、父帖两处图都挡掉）。
   const junk = u => !u || /emoji|face_regular|badge|medal|identity_icon|xavatar|\/community\/|_logo|icon_|commentlist_tag|_tag-|sprite/i.test(u);
   const norm = u => (u || '').replace(/!\d*x*\d*\.jpg$|!custom\.jpg$|!800\.jpg$/, '');
-  const collectImgs = (card, content) => {
+  const collectImgs = (card, content, skipFwd) => {
+    if (skipFwd === undefined) skipFwd = true;
     const out = [], seen = {};
     const blocks = content ? Array.from(content.children) : [];
     const paraOf = n => {
@@ -129,7 +131,7 @@ FEED_JS = r"""
       return -1;                       // 图不在正文块内（如折叠锚在卡尾）→ -1，渲染端退卡尾
     };
     for (const nd of card.querySelectorAll('img, a.co-img-link, a[href]')) {
-      if (nd.closest('[class*=forward]')) continue;   // 被引/父帖的图不归本帖（自己的九宫格也是 blockquote，不能按 blockquote 判）
+      if (skipFwd && nd.closest('[class*=forward]')) continue;   // 被引/父帖的图不归本帖（自己的九宫格也是 blockquote，不能按 blockquote 判）
       const raw = nd.tagName === 'IMG' ? nd.src : nd.getAttribute('href');
       if (junk(raw)) continue;
       const u = norm(raw);
@@ -140,7 +142,9 @@ FEED_JS = r"""
     return out;
   };
   const rows = [];
+  let di = -1;
   for (const it of [...document.querySelectorAll('.timeline__item')]) {
+    di++;
     const nameA = it.querySelector('.user-name');
     const content = it.querySelector('.timeline__item__content');
     const permA = it.querySelector('a[href].date-and-source');
@@ -166,6 +170,8 @@ FEED_JS = r"""
         author: qAuthor || null,
         title: titleA ? titleA.innerText.trim() : null,
         isColumn: wrapTxt.includes('专栏'),
+        // 被引帖自己的图：归「串的被讨论帖快照」（root.imgs），不归本帖——所以这一路**不跳** forward 子树
+        imgs: collectImgs(fwd, null, false),
         time: fm[1] || '',
         counts: [parseInt(fm[2] || 0, 10), parseInt(fm[3] || 0, 10), parseInt(fm[4] || 0, 10)],
         lead: lines.filter(l => l !== footLine && l !== qAuthor && l !== (titleA ? titleA.innerText.trim() : '\u0000'))
@@ -173,11 +179,15 @@ FEED_JS = r"""
       };
     }
     rows.push({
+      di: di,                              // DOM 序号：对话串阶段按它把卡片重新定位回来
       href: permA.getAttribute('href'),
       author: nameA ? nameA.innerText.trim() : null,
       timeLabel: timeA ? timeA.innerText.trim() : null,
       column: !!it.querySelector('.timeline__item__title'),
       trunc: /展开/.test(ctext),
+      // 「查看对话」按钮＝这条回复有整套问答链可开（判据与 xq_dialog_collect 一致：可见才算有入口）。
+      // 必须在**正文展开之后**才出现，所以这一位是展开阶段跑完再读一次才准。
+      dlg: !!Array.from(it.querySelectorAll('a.dialogue__btn')).some(x => x.offsetWidth),
       counts: [num(controls[0] || ''), num(controls[1] || ''), num(controls[2] || '')],
       quoted,
       text: ctext.slice(0, 20000),
@@ -201,6 +211,122 @@ DETAIL_JS = r"""
   };
 }
 """
+
+# ── 对话串（2026-10-01 用户要求「图和对话串一趟采完，不能只采图」）────────
+# 弹窗那套 JS 只有一份权威源＝scripts/xq_dialog_collect.py，这里 import 常量复用，**不另抄一份**
+# （抄一份＝两边解析迟早漂）。feed 侧只多做一件事：按 href 把卡片重新标记成 data-zc-dlg，
+# 好让采集器的 JS_OPEN_DLG / JS_MODAL_* 原样可用。标记名沿用采集器的，不另起。
+THREAD_BUDGET = 260        # 单轮最多开多少个对话弹窗（≈1.5s/个，防整轮时长失控）
+THREAD_PACE = 1.5          # 每个弹窗之间的间隔（开→稳→读→关本身约 3.5s）
+MARK_BY_HREF_JS = r"""
+(href) => {
+  const a = document.querySelector('.timeline__item a[href].date-and-source[href="' + href + '"]');
+  const t = a && a.closest('.timeline__item');
+  if (!t) return false;
+  document.querySelectorAll('[data-zc-dlg]').forEach(e => e.removeAttribute('data-zc-dlg'));
+  t.setAttribute('data-zc-dlg', '1');
+  t.scrollIntoView({ block: 'center', behavior: 'instant' });
+  return true;
+}
+"""
+
+
+def _dlg_mod():
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(here, "scripts"), here):
+        if cand not in sys.path:
+            sys.path.insert(0, cand)
+    import xq_dialog_collect as D
+    return D
+
+
+def collect_threads(p, rows, logger, budget=THREAD_BUDGET):
+    """就地给每条「有对话入口」的回复帖开弹窗采整条问答链，写回 row['thread']。
+
+    必须在**展开阶段跑完之后**调：`a.dialogue__btn` 是正文展开后才出现的（dialog-flow 第 1 步），
+    早一步跑就永远判「无入口」。"""
+    D = _dlg_mod()
+    todo = [r for r in rows if r.get("dlg")]
+    logger.info("对话串：流内有入口 %s 条（预算 %s）", len(todo), budget)
+    got, guard = 0, 0
+    for r in todo:
+        if got >= budget:
+            r["thread_skip"] = "超预算"
+            continue
+        try:
+            if not p.evaluate(MARK_BY_HREF_JS, r["href"]):
+                r["thread_skip"] = "卡片已回收"
+                continue
+            time.sleep(0.5)
+            if not p.evaluate(D.JS_OPEN_DLG, None):
+                r["thread_skip"] = "开窗失败"
+                continue
+            time.sleep(1.4)
+            prev, stable, spins = -1, 0, 0
+            while stable < 3 and spins < 12:
+                n = p.evaluate(D.JS_MODAL_STABLE, None)
+                time.sleep(0.7)
+                spins += 1
+                if n == prev:
+                    stable += 1
+                else:
+                    stable, prev = 0, n
+            nodes = p.evaluate(D.JS_NODES, None) or []
+            p.evaluate(D.JS_MODAL_CLOSE, None)
+            time.sleep(0.5)
+            if p.evaluate(D.JS_MODAL_OPEN_Q, None):        # 没关掉会盖住后面所有读取
+                p.evaluate(D.JS_MODAL_CLOSE, None)
+                time.sleep(0.4)
+            for i, nd in enumerate(nodes):
+                nd["seq"] = i
+                nd["parent_seq"] = i - 1 if i else None
+            if nodes:
+                r["thread"] = {"trigger": {"url": "https://xueqiu.com" + r["href"],
+                                           "time": r.get("timeLabel") or ""},
+                               "nodes": nodes}
+                got += 1
+            else:
+                r["thread_skip"] = "空链"
+        except Exception as e:
+            r["thread_skip"] = f"异常:{str(e)[:40]}"
+        guard += 1
+        if guard % 40 == 0:
+            logger.info("  对话串进度 %s/%s（已采 %s 条）", guard, len(todo), got)
+        time.sleep(THREAD_PACE)
+    logger.info("对话串：采到 %s 条链，跳过 %s 条", got, len(todo) - got)
+    return got
+
+
+def write_thread_sidecars(rows, out_dir, md_path, tab):
+    """按博主各写一份 JSON，格式与 xq_dialog_collect 产物一致 → import-thread.js 原样吃。
+    分博主是因为 import-thread.js 的 data.uid / data.blogger 是**单值**（一串一博主）。"""
+    import xq_dialog_collect as D  # noqa: F401  （只为确认件在，真正用的是 JSON 形状）
+    by = {}
+    for r in rows:
+        th = r.get("thread")
+        if not th:
+            continue
+        uid = (re.match(r"^/(\d+)/", r["href"]) or [None, None])[1]
+        if not uid:
+            continue
+        q = r.get("quoted") or {}
+        th["root"] = (None if not q.get("url") else {
+            "url": "https://xueqiu.com" + q["url"], "author": q.get("author") or "",
+            "meta": q.get("time") or "", "content": q.get("lead") or "",
+            "imgs": q.get("imgs") or []})
+        by.setdefault((uid, r.get("author") or ""), []).append(th)
+    paths = []
+    stem = os.path.splitext(os.path.basename(md_path))[0]
+    for (uid, blogger), threads in by.items():
+        fp = os.path.join(out_dir, f"{stem}-对话串-{blogger or uid}.json")
+        with open(fp, "w", encoding="utf-8") as fh:
+            json.dump({"uid": uid, "blogger": blogger, "pages": 1, "mode": f"feed-{tab}",
+                       "replies": len(threads), "origs_seen": 0, "threads": threads,
+                       "collectedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                      fh, ensure_ascii=False, indent=1)
+        paths.append((blogger, len(threads), fp))
+    return paths
+
 
 # ── 文本清洗 ─────────────────────────────────────────────────────────
 
@@ -324,7 +450,7 @@ def save_bookmark(tab, iso):
 # ── 主流程 ───────────────────────────────────────────────────────────
 
 def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
-             outfile=None, filter_mode="auto", use_bookmark=True):
+             outfile=None, filter_mode="auto", use_bookmark=True, threads=True):
     import logging
     logger = logging.getLogger(__name__)
     if output_dir is None:
@@ -414,6 +540,8 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
         anchor_ms, raw = res["now"], res["rows"]
         logger.info("载入 %s 条，流内展开 %s 条，滚动 %s 步，书签已翻到: %s",
                     len(raw), exp.get("ok", 0), steps, reached if since_dt else "n/a")
+        if threads:
+            collect_threads(p, raw, logger)
     finally:
         b.stop()
 
@@ -607,6 +735,14 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
           + ("，熔断余下按摘要" if url_visited < len(todo) else ""))
     print(f"[展开] 遇到需展开 {exp.get('ok', 0) + max(exp.get('remaining', 0), 0)} 条"
           f"（流内展开成功 {exp.get('ok', 0)}，未成功转详情页 {max(exp.get('remaining', 0), 0)}）")
+    # 对话串旁挂产物（一趟采完：帖子集管正文与图，这份管问答链；两份各自幂等落库）
+    if threads:
+        side = write_thread_sidecars(rows, output_dir, path, tab)
+        if side:
+            print(f"[对话串] {len(side)} 位博主、{sum(x[1] for x in side)} 条链 → "
+                  + "、".join(os.path.basename(x[2]) for x in side[:3])
+                  + ("…" if len(side) > 3 else ""))
+            print("          落库：node ~/Project/investment-dashboard/src/scripts/import-thread.js <json>")
     # 成功产出 → 写流断点书签（本轮起点）；窗口未翻到时**禁写**（防漏采固化）
     if not window_incomplete:
         save_bookmark(tab, datetime.fromtimestamp(anchor_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S"))

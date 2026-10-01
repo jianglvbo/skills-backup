@@ -303,6 +303,10 @@ def main():
                          help="看板博主过滤（auto=关注流开/热门流关；被过滤帖不入产物，未建档帖入库侧也会跳过）")
     sp_feed.add_argument("--output", default=None, help="输出目录（默认 ~/.cache/xueqiu-spyder/out）")
     sp_feed.add_argument("--outfile", default=None, help="输出文件名（默认 雪球采集-{流名}-{日期}.md）")
+    sp_feed.add_argument("--no-threads", dest="threads", action="store_false",
+                         help="关掉「同一趟顺带采对话串」（缺省开：流内每条有对话入口的回复帖就地开弹窗采整条问答链，"
+                              "旁挂一份 import-thread.js 能直接吃的 JSON）")
+    sp_feed.set_defaults(threads=True)
 
     args = parser.parse_args()
 
@@ -329,7 +333,7 @@ def main():
             result = feed_mod.run_feed(
                 args.tab, args.limit,
                 args.since, args.output, args.outfile, args.filter_tracked,
-                use_bookmark=not args.no_since,
+                use_bookmark=not args.no_since, threads=args.threads,
             )
         else:
             parser.print_help()
