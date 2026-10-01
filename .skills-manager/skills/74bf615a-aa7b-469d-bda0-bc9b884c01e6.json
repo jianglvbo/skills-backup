@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "74bf615a-aa7b-469d-bda0-bc9b884c01e6",
+  "path": "life-decision-guide",
+  "path_key": "life-decision-guide",
+  "enabled": true,
+  "source": {
+    "type": "skillssh",
+    "ref": "eternity4719/HowToLiveBetter/life-decision-guide",
+    "subpath": "skills/life-decision-guide",
+    "branch": null
+  },
+  "folder_id": null
+}
