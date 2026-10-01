@@ -25,6 +25,14 @@ USER_POSTS_COUNT = int(os.environ.get("XUEQIU_POSTS_COUNT", "20"))
 REQUEST_DELAY = 1.0
 MAX_RETRIES = 3
 
+# 详情页逐帖补全的节流（2026-10-01 对齐 references/execution-guide.md「单帖接口限流」硬约束：
+# 安全速率 sleep ≥1.2s + 每 50 次停 45s ≈0.7 req/s；实测 1.1 req/s 连约 200 次即 405）。
+# 原先这里沿用 REQUEST_DELAY=1.0s 且无长歇，实测 16 次跳转压在 ~21 次/分钟上直接弹滑块。
+DETAIL_PACE = tuple(float(x) for x in
+                    os.environ.get("XUEQIU_DETAIL_PACE", "1.2,1.9").split(","))
+DETAIL_BREAK_N = int(os.environ.get("XUEQIU_DETAIL_BREAK_N", "50"))     # 每多少次详情页长歇一次
+DETAIL_BREAK_S = float(os.environ.get("XUEQIU_DETAIL_BREAK_S", "45"))   # 长歇秒数（文档口径 45s）
+
 
 # Output
 DEFAULT_OUTPUT_DIR = "./output"

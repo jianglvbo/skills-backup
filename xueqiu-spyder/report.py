@@ -114,6 +114,12 @@ def generate_user_report(screen_name, user_id, opinions, output_dir=None, outfil
             f"回复 {op.reply_count} | 点赞 {op.like_count} | {op.completeness} | "
             f"[原文](https://xueqiu.com/{user_id}/{op.post_id})"
         )
+        # 配图元数据行（2026-10-01 第①步）：URL 只走这一行，正文里一律不留图片引用——
+        # 塞回正文会污染 content_hash=md5(body)，三处同键比对会把整批存量帖判「不一致」。
+        # 行式：`> 图：<url> @p<段落号> | <url> @p<段落号>`（@p-1＝段落位置未知，渲染端退卡尾）
+        if getattr(op, "images", None):
+            parts = [f"{im['url']} @p{im.get('para', -1)}" for im in op.images]
+            lines.append(f"> 图：{' | '.join(parts)}")
         lines.append("")
         lines.append("---")
         lines.append("")

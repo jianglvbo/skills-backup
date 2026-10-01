@@ -141,7 +141,7 @@ $PY "$SPYDER/main.py" profile 4026867340                             # 主页档
 | 场景 | 文件 | 方式 |
 |:---|:---|:---|
 | 执行细节/前置同步/风控/模式决策/feed 与 user 模式细则 | `references/execution-guide.md` | 读取 |
-| 对话串采集流程（用户定稿：查看对话四步/分页/分类判据/清洗规则） | `references/dialog-flow.md` | 读取 |
+| 对话串采集流程（查看对话四步/分页/分类判据/清洗规则；采集器 `scripts/xq_dialog_collect.py` 三模式与落库 `import-thread.js` 口径） | `references/dialog-flow.md` | 读取 |
 | 帖子集格式/铁律/回复内容块 | `references/output-format.md` | 读取 |
 | 环境变量/退出码语义 | `references/env-vars.md` | 读取 |
 | 流式采集核心 | `feed.py`（`main.py feed` 入口） | 执行 |

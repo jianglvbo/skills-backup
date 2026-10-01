@@ -68,7 +68,39 @@ JS_EXPAND = """() => {
   return true;
 }"""
 
-JS_ITEM_META = """(arg) => {
+# 配图提取（2026-10-01）：对话串全程 innerText，链节点与触发帖的图此前一律丢。
+# 图在 DOM 里有两种载体——已渲染的 <img src>（带 !800.jpg/!custom.jpg 尺寸档）与被折叠成
+# <a class="co-img-link" href="…jpg">查看图片</a>；读属性即可，**不需要点开**。
+# 用 raw string 写：JS 正则里的 \d \/ 直接就是字面量，不必再双层转义。
+JS_IMG = r"""
+  const __junk = u => !u || /emoji|face_regular|badge|medal|identity_icon|xavatar|\/community\/|_logo|icon_|commentlist_tag|_tag-|sprite/i.test(u);
+  const __norm = u => (u || '').replace(/!\d*x*\d*\.jpg$|!custom\.jpg$|!800\.jpg$/, '');
+  const __imgs = (root, scope) => {
+    const out = [], seen = {};
+    if (!root) return out;
+    const blocks = scope ? Array.from(scope.children) : [];
+    const paraOf = n => {
+      let k = 0;
+      for (const b of blocks) {
+        if (b === n || b.contains(n)) return k;
+        if ((b.innerText || '').trim()) k++;
+      }
+      return -1;
+    };
+    for (const nd of root.querySelectorAll('img, a.co-img-link, a[href]')) {
+      if (nd.closest('blockquote')) continue;          // 引用卡的图归 root，不在节点里重复计
+      const raw = nd.tagName === 'IMG' ? nd.src : nd.getAttribute('href');
+      if (__junk(raw)) continue;
+      const u = __norm(raw);
+      if (!u || !/\.(png|jpe?g|gif|webp|bmp)$/i.test(u) || seen[u]) continue;
+      seen[u] = 1;
+      out.push({url: u, para: scope ? paraOf(nd) : -1});
+    }
+    return out;
+  };
+"""
+
+JS_ITEM_META = "(arg) => {" + JS_IMG + """
   const t = document.querySelector('[data-zc-dlg]');
   if (!t) return null;
   const main = t.querySelector('.timeline__item__main') || t;
@@ -84,13 +116,15 @@ JS_ITEM_META = """(arg) => {
     if (mi >= 0) { meta = lines[mi]; lines.splice(mi, 1); }
     const body = lines.filter(l => !/^(收起|展开)/.test(l)).join('\\n');
     root = { url: a ? 'https://xueqiu.com' + a.getAttribute('href').split('#')[0] : null,
-             author, meta, content: body };
+             author, meta, content: body,
+             imgs: __imgs(card, null) };
   }
   const timeEl = [...main.querySelectorAll('a[href]')].find(a2 =>
     new RegExp('^/' + arg.uid + '/\\\\d+$').test(a2.getAttribute('href') || ''));
   return { hasDlg: !!(dlg && dlg.offsetWidth),
            url: timeEl ? 'https://xueqiu.com' + timeEl.getAttribute('href') : null,
            time: timeEl ? timeEl.textContent.replace(/\\s+/g, ' ').trim() : '',
+           imgs: __imgs(main, main.querySelector('.timeline__item__content') || main),
            root };
 }"""
 
@@ -128,7 +162,7 @@ JS_NEXT_PAGE = """() => {
   return true;
 }"""
 
-JS_NODES = """() => {
+JS_NODES = "() => {" + JS_IMG + """
   const out = [];
   for (const it of document.querySelectorAll('.modal.modal__comment .comment__item')) {
     const hd = it.querySelector('.comment__item__main__hd');
@@ -153,6 +187,7 @@ JS_NODES = """() => {
     /* 讨论/赞数字不采（用户 09-30 定稿）：只保留「N位达人赞过/作者赞过」标识 */
     out.push({ name, author_uid: uid, badge: badge || null, time, text: body,
                daren: darenEl ? darenEl.textContent.replace(/[\\uE000-\\uF8FF]/g, '').trim() : null,
+               imgs: __imgs(main, main),
                comment_id: it.getAttribute('data-id') || null });
   }
   return out;

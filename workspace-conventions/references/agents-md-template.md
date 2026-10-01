@@ -14,6 +14,10 @@
   **那可能是上个会话的进行中工作，先读懂意图，别当垃圾回滚或扫进无关提交**。
 - **收工**：交接写进 commit message——决策、原因、遗留问题在 message 里说清；
   需要长期生效的规则沉淀进本文。
+- **分支命名**：按 workspace-conventions skill 规范 #7——`<类型>/<scope标记>-<英文简述>`，
+  全小写 kebab-case，类型 `feat|fix|chore|docs`，描述段英文（通用理由与维度选择规则归该 skill，不抄）。
+  本项目 scope 维度＝【双端分离项目填 `pc-`/`mobile-`/双端 `pc-mobile-`（纯后端·DB·脚本不带）；
+  不分端的项目写「无 scope 标记」；多服务/多模块填模块名维度】，示例：【feat/xxx-yyy】。
 - **分工（一处一义）**：`README.md` 给下一个开发者看（怎么跑/怎么开发/怎么用）；本文件只管**本工作区工程纪律**；
   流程编排与工具用法归各 skill，skill 内不得重述本文件的纪律（只准指回）。
   跨工作的通用规范在 workspace-conventions skill，别往本文件里抄。

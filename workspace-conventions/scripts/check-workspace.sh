@@ -38,6 +38,7 @@ if [ -f AGENTS.md ]; then
   grep -q "开工与收工" AGENTS.md && pass sec_handoff || fail sec_handoff_missing
   grep -q "一处一义" AGENTS.md && pass sec_ownership || fail sec_ownership_missing
   grep -q "产物落点" AGENTS.md && pass sec_artifacts || fail sec_artifacts_missing
+  grep -q "分支命名" AGENTS.md && pass sec_branch_naming || warn sec_branch_naming_missing_2026_10_01_rule
 fi
 
 # --- 2. .gitignore：产物与 skill 镜像层不进 git ---
@@ -57,6 +58,18 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     echo "$tracked" | while IFS= read -r f; do echo "FAIL tracked_in_git $f"; done
     fail tracked_in_git_see_lines_above
   fi
+  # --- 3b. 当前分支名（规范 #7；主线不查，WARN 不拦）---
+  cur=$(git branch --show-current 2>/dev/null)
+  case "$cur" in
+    "" | master | main | release | develop | trunk) ;;
+    *)
+      if printf '%s' "$cur" | grep -qE '^(feat|fix|chore|docs)(/[a-z0-9][a-z0-9-]*)+$'; then
+        pass "branch_name_ok $cur"
+      else
+        warn "branch_name_off_convention $cur（期望 <feat|fix|chore|docs>/<scope->英文slug，见 workspace-conventions 规范 #7）"
+      fi
+      ;;
+  esac
 else
   warn git_repo_absent_skipped_tracked_check
 fi

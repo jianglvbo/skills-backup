@@ -1,6 +1,7 @@
 import time
 import re
 import sys
+import random
 import logging
 import subprocess
 import os
@@ -280,8 +281,10 @@ class XueqiuCrawler:
         return data.get("list", [])
 
     def get_post_full_text(self, target, _slider_retried=False):
-        """访问帖子详情页获取完整内容 + 精确发布时间（优先 article:published_time，次选页面文本）
-        返回 (full_text, published_ms or None)；target 如 /5243796549/376934652
+        """访问帖子详情页获取完整内容 + 精确发布时间 + 配图清单
+        返回 (full_text, published_ms or None, imgs or None)；target 如 /5243796549/376934652
+        imgs = [{url, para}]：图在原帖第几段之后。**零点击**——雪球把折叠的配图渲染成
+        <a class="co-img-link" href="…jpg">查看图片</a>，读 href 即可，不必点开（2026-10-01 实测）。
         `_slider_retried`：滑块交接后只重试一次，防"验证页反复出现"死循环"""
         detail_page = self._ego.new_page()
         try:
@@ -305,7 +308,32 @@ class XueqiuCrawler:
                     const m = document.body?.innerText?.match(/发布于\\s*(\\d{4}-\\d{2}-\\d{2}\\s*\\d{2}:\\d{2})/);
                     if (m) published = m[1];
                 }
-                return {text: text, published: published,
+                // 配图：img[src] 与折叠用的 a.co-img-link[href] 一起收，按文档顺序去重
+                let imgs = [];
+                if (el) {
+                    const junk = u => !u || /emoji|face_regular|badge|medal|identity_icon|xavatar|\\/community\\/|_logo|icon_/i.test(u);
+                    const norm = u => (u || '').replace(/!\\d*x*\\d*\\.jpg$|!custom\\.jpg$|!800\\.jpg$/, '');
+                    const nodes = Array.from(el.querySelectorAll('img, a.co-img-link, a[href]'));
+                    const blocks = Array.from(el.children);
+                    const paraOf = node => {
+                        let n = 0;
+                        for (const b of blocks) {
+                            if (b === node || b.contains(node)) return n;
+                            if ((b.innerText || '').trim()) n++;
+                        }
+                        return n;
+                    };
+                    const seen = {};
+                    for (const nd of nodes) {
+                        const raw = nd.tagName === 'IMG' ? nd.src : nd.getAttribute('href');
+                        if (junk(raw)) continue;
+                        const u = norm(raw);
+                        if (!u || !/\\.(png|jpe?g|gif|webp|bmp)$/i.test(u) || seen[u]) continue;
+                        seen[u] = 1;
+                        imgs.push({url: u, para: paraOf(nd)});
+                    }
+                }
+                return {text: text, published: published, imgs: imgs,
                         title: document.title || '',
                         snippet: (document.body?.innerText || '').slice(0, 300)};
             }""")
@@ -321,7 +349,7 @@ class XueqiuCrawler:
                     f"详情页命中 WAF/405（{target}）—— 中止本轮采集，等待冷却后重跑；"
                     f"页面特征: {blob.strip()[:80]}"
                 )
-            return result.get("text", ""), result.get("published") or None
+            return result.get("text", ""), result.get("published") or None, result.get("imgs") or None
         except CrawlerError:
             raise
         except Exception as e:
@@ -333,7 +361,7 @@ class XueqiuCrawler:
             else:
                 logger.warning(f"获取帖子详情失败 {target}: {e}")
             self._shot(f"detail-error-{target.strip('/').replace('/', '_')}", page=detail_page)
-            return "", None
+            return "", None, None
         finally:
             detail_page.close()
 
@@ -345,6 +373,10 @@ class XueqiuCrawler:
             desc = post.get("description", "") or ""
             text = post.get("text", "") or ""
             target = post.get("target", "")
+            # 配图要留一份 API 原始 HTML：下面补全成功会把 post["text"] 覆盖成详情页纯文本，
+            # 那时 <img>/<a href> 就没了（analyzer 只认 HTML 里的 URL）。setdefault 不动正文口径。
+            if "<" in text:
+                post.setdefault("text_html", text)
             # text 为空，或 description 以 ... 结尾（摘要截断），说明正文可能被截断 → 详情页补全
             # 需要补全的判据：详情页目标存在，且正文缺失/明显是 API 摘要
             #   ① 没有正文；② 描述被截断（...）；③ 正文短于截断描述（半截内容）
@@ -352,13 +384,23 @@ class XueqiuCrawler:
             # （2026-09-16 实测：description 截断、text 半截，两者都不长 → 旧判据直接跳过）
             looks_truncated = not text or desc.endswith("...") or len(text) < len(desc)
             if target and looks_truncated:
-                time.sleep(config.REQUEST_DELAY)
+                # 节流按 execution-guide「单帖接口限流」的安全速率：≥1.2s + 抖动 + 每 N 次长歇
+                # （2026-10-01 实测：1.0s 无长歇 → 16 次跳转即命中滑块，白烧一轮）
+                time.sleep(random.uniform(*config.DETAIL_PACE))
+                if (config.DETAIL_BREAK_N
+                        and self._detail_seen and self._detail_seen % config.DETAIL_BREAK_N == 0):
+                    logger.info("  详情页已访问 %d 次，长歇 %.0f 秒（WAF 安全速率）",
+                                self._detail_seen, config.DETAIL_BREAK_S)
+                    time.sleep(config.DETAIL_BREAK_S)
                 self._detail_seen += 1
                 # 抽帧留证：详情页是风控最常出现的地方，按间隔落图便于回看
                 if config.EGO_SHOT_EVERY and self._detail_seen % config.EGO_SHOT_EVERY == 0:
                     self._shot(f"progress-{self._detail_seen}")
                 post["needs_full"] = True     # 待补全：失败时据此标「摘要」而不是「全文」
-                full, published = self.get_post_full_text(target)
+                full, published, dom_imgs = self.get_post_full_text(target)
+                if dom_imgs:
+                    # 详情页是比 API 更全的配图来源（长文的图常常不在 API 摘要 HTML 里）
+                    post["dom_imgs"] = dom_imgs
                 if full:
                     # 详情页是权威来源：**只要抓到就采用**，不再要求"比 API 的 text 长"
                     # （2026-09-16 修：此前把"长度相当但内容更全"的帖误判为失败，

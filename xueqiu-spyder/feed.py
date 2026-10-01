@@ -29,6 +29,7 @@ import urllib.request
 from datetime import datetime, timedelta
 
 import ego_browser
+from analyzer import extract_images
 
 N_TARGET_DEFAULT = 50
 PACE = (2.6, 3.4)          # 例外详情页节流
@@ -102,6 +103,39 @@ CLICK_ONE_JS = r"""
 FEED_JS = r"""
 () => {
   const num = (t) => /^\d+$/.test(t) ? parseInt(t, 10) : 0;
+  // 配图：流式卡里图有两种载体——已渲染的 <img src>（带 !800.jpg/!custom.jpg 尺寸档）与被折叠成
+  // <a class="co-img-link" href="…jpg">查看图片</a>。读属性即可，**不需要点开**（2026-10-01 实测）。
+  // ⚠ 归属只认**本帖自己**：回复/转帖卡会把「被回复帖」的图渲染进同一张卡，整卡无差别扫描就把父帖
+  //   的图算到回复头上（2026-10-01 实测：post_image 45 行只对应 24 个不同 URL，「斯宾诺莎的世界」
+  //   9 条回复共用 1 张图，含图率被虚高到 38.6%）。用户拍板「图归真正拥有它的帖」。
+  //   判据＝跳过 blockquote/[class*=forward] 子树，**不能把范围收到 .timeline__item__content**——
+  //   同日探针实测：本帖自己的图长在 div.content__addition.pic__thumb（正文块的**兄弟**、挂在卡尾），
+  //   正文块里只有折叠态的 a.co-img-link；按正文块扫会把样本里 9 张真图全丢掉。
+  //   而样本里「父帖图」inForward=1、「本帖图」inForward=0 恰好完全分开，这条判据是干净的。
+  const junk = u => !u || /emoji|face_regular|badge|medal|identity_icon|xavatar|\/community\/|_logo|icon_|commentlist_tag|_tag-|sprite/i.test(u);
+  const norm = u => (u || '').replace(/!\d*x*\d*\.jpg$|!custom\.jpg$|!800\.jpg$/, '');
+  const collectImgs = (card, content) => {
+    const out = [], seen = {};
+    const blocks = content ? Array.from(content.children) : [];
+    const paraOf = n => {
+      let k = 0;
+      for (const b of blocks) {
+        if (b === n || b.contains(n)) return k;
+        if ((b.innerText || '').trim()) k++;
+      }
+      return -1;                       // 图不在正文块内（如折叠锚在卡尾）→ -1，渲染端退卡尾
+    };
+    for (const nd of card.querySelectorAll('img, a.co-img-link, a[href]')) {
+      if (nd.closest('blockquote, [class*=forward]')) continue;   // 被引/父帖的图不归本帖
+      const raw = nd.tagName === 'IMG' ? nd.src : nd.getAttribute('href');
+      if (junk(raw)) continue;
+      const u = norm(raw);
+      if (!u || !/\.(png|jpe?g|gif|webp|bmp)$/i.test(u) || seen[u]) continue;
+      seen[u] = 1;
+      out.push({url: u, para: content ? paraOf(nd) : -1});
+    }
+    return out;
+  };
   const rows = [];
   for (const it of [...document.querySelectorAll('.timeline__item')]) {
     const nameA = it.querySelector('.user-name');
@@ -144,6 +178,7 @@ FEED_JS = r"""
       counts: [num(controls[0] || ''), num(controls[1] || ''), num(controls[2] || '')],
       quoted,
       text: ctext.slice(0, 20000),
+      imgs: collectImgs(it, content),
     });
   }
   return { now: Date.now(), rows };
@@ -527,7 +562,12 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
                f" | 转发 {c[0]} | 回复 {c[1]} | 点赞 {c[2]}"
                f" | {complete}{' | ' + reason if reason else ''}"
                f" | [原文](https://xueqiu.com{r['href']})")
-        out_rows.append((i, title, body, pub, author))
+        # 配图：只取本帖正文块里的图（引用卡/被回复块的图归被引帖，见 FEED_JS collectImgs 的 ⚠ 段）。
+        # 过一遍归一化——去尺寸档、滤表情/头像、按出现顺序去重。
+        # 只写进元数据行，正文一律不留图片引用：进正文会污染 content_hash=md5(body)，
+        # 三处同键比对（import/check/MCP upsert）会把整批存量帖判「不一致」。
+        imgs = extract_images(r.get("imgs"))
+        out_rows.append((i, title, body, pub, author, imgs))
 
     status = "待提炼" if n_full == len(out_rows) else "待提炼-含摘要"
     n_author = len({x[4] for x in out_rows})
@@ -545,8 +585,13 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
         "---",
         "",
     ]
-    for i, title, body, pub, author in out_rows:
-        lines += [f"## {i}. {title}", "", body, "", pub, "", "---", ""]
+    for i, title, body, pub, author, imgs in out_rows:
+        lines += [f"## {i}. {title}", "", body, "", pub]
+        if imgs:
+            # 与 report.py（user 模式）同一行式：`> 图：<url> @p<段落号> | …`，入库侧只解析一种格式
+            lines.append("> 图：" + " | ".join(
+                f"{im['url']} @p{im.get('para', -1)}" for im in imgs))
+        lines += ["", "---", ""]
     os.makedirs(output_dir, exist_ok=True)
     outfile = outfile or f"雪球采集-{tab_desc}-{now_dt:%Y年%m月%d日}.md"
     path = os.path.join(output_dir, outfile)

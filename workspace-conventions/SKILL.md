@@ -1,11 +1,11 @@
 ---
 name: workspace-conventions
-description: 工作区协作规范初始化与核对：把跨项目通用约定（规则分层 AGENTS.md/README/skill、共享 .agents/skills 层、git 交接、out/<agent> 产物分格、各 agent 用户级落点）落成一份可自校的 AGENTS.md，并用脚本机械校验落地结果。触发词：「工作区规范」「初始化 AGENTS.md」「这套规范能复制到别的仓库」「跨工作区约定」「核对 AGENTS.md 和现状是否一致」「新建项目的 agent 协作规则」。不用于：单个项目特有的业务纪律（写该项目自己的 AGENTS.md）、任何改库/改线上状态的动作。
+description: 工作区协作规范初始化与核对：把跨项目通用约定（规则分层 AGENTS.md/README/skill、共享 .agents/skills 层、git 交接、git 分支命名、out/<agent> 产物分格、各 agent 用户级落点）落成一份可自校的 AGENTS.md，并用脚本机械校验落地结果。触发词：「工作区规范」「初始化 AGENTS.md」「这套规范能复制到别的仓库」「跨工作区约定」「分支命名」「git 分支怎么起名」「核对 AGENTS.md 和现状是否一致」「新建项目的 agent 协作规则」。不用于：单个项目特有的业务纪律（写该项目自己的 AGENTS.md）、任何改库/改线上状态的动作。
 ---
 
-# 六条规范（本 skill 是唯一权威措辞）
+# 七条规范（本 skill 是唯一权威措辞）
 
-本 skill 两个职能：**初始化**＝给新工作区把六条规范落成一份可自校的 AGENTS.md（第二步～第五步）；
+本 skill 两个职能：**初始化**＝给新工作区把七条规范落成一份可自校的 AGENTS.md（第二步～第五步）；
 **核对**＝验既有工作区是否仍按规范来（第二步＋第六步，只出报告不改文件）。
 
 | # | 规范 | 落点 | 可移植性 |
@@ -16,9 +16,23 @@ description: 工作区协作规范初始化与核对：把跨项目通用约定�
 | 4 | 共享 skill 层 | 工作区 `.agents/skills/` | **本体不可移植**，只搬规则 |
 | 5 | 跨会话/跨 agent 交接 | `git log` + `git status/diff` → commit message | 是 |
 | 6 | 交付产物 | `out/<agent>/`，分格名**只认 AGENTS.md 锚点名单**，不进 git；agent 按自家工具名另开的格子＝名单外，核对时只上报 | 是 |
+| 7 | git 分支命名 | 通用骨架见下方「分支命名」一节；各仓 AGENTS.md 只写本项目选定的 scope 维度与示例 | 骨架可移植，scope 维度各仓自选 |
 
 > 边界：git 的**动作**（暂存/提交/推送）走 git-ops，本 skill 只定「规范写在哪、怎么校验」；
 > skill 的安装与部署走 manage-skills，本 skill 只说清工作区这层的可见性后果。
+
+## 分支命名（规范 #7 权威措辞）
+
+`<类型>/<scope标记>-<英文简述>`，全小写 kebab-case：
+
+- 类型 `feat|fix|chore|docs`（与 commit 前缀一致）。
+- **scope 维度按项目实际拆分形态选一个，选定后固定，不照搬别人的维度**：
+  - 双端分离的项目（如 PC/移动双 UI）：`pc-` / `mobile-` / 双端 `pc-mobile-`，纯后端·DB·脚本不带；
+  - 不分端的项目：不带 scope，`feat/<简述>`；
+  - 有其他天然拆分（多服务/多模块）：用模块名，如 `feat/api-…` / `feat/web-…`。
+- 描述段一律英文不写中文——三条理由跨项目成立：`core.quotepath` 八进制转义、
+  GitHub URL percent-encode、脚本 grep 与补全摩擦；语义交给详尽的中文 commit message。
+- 各仓 AGENTS.md 写本项目实例（选定的维度 + 示例）并指回本节，不复制通用理由。
 
 # Default stance
 
@@ -67,7 +81,7 @@ description: 工作区协作规范初始化与核对：把跨项目通用约定�
 目录 / 产物落点 / Skill 可见性 / 项目自有纪律。**§目录 的两份名单锚点是机器读的**
 （`<!-- agent-cells: … -->` 与 `<!-- root-entries: … -->`）：脚本从这两行取判据，
 所以分格名和一级目录名单**只准写在这一处**，产物落点等段落一律只准指回。
-项目自有纪律那段留空自填，**通用六条不抄进来**——本 skill 是它们的权威措辞，
+项目自有纪律那段留空自填，**通用七条不抄进来**——本 skill 是它们的权威措辞，
 AGENTS.md 只写指回句和本项目的差异。
 
 README 同步落（规范 #3 的执行口）：受众是**下一个开发者**，不是仓库主人——
@@ -127,7 +141,7 @@ bash <skill_dir>/scripts/check-workspace.sh <工作区根>    # FAIL 非零退�
 
 # Source hierarchy
 
-1. 用户显式约定（六条规范本体、`out/<agent>` 分格、一处一义、改前必读未提交）
+1. 用户显式约定（七条规范本体、`out/<agent>` 分格、一处一义、改前必读未提交）
 2. 本机实测（git log、DB、`ls` 结果——与约定冲突时以现状为准并回报差异）
 3. Agent Skills 开放规范的跨工具目录约定（`.agents/skills/`）
 4. 通用软件工程实践（可复现、门禁前置）
@@ -135,7 +149,7 @@ bash <skill_dir>/scripts/check-workspace.sh <工作区根>    # FAIL 非零退�
 # 自检
 
 - [ ] 第二步真的跑过命令了？每条结论都能报出证据（文件行号 / sha / DB 计数）？
-- [ ] AGENTS.md 里没有把本 skill 的六条措辞抄一遍（只留指回 + 本项目差异）？
+- [ ] AGENTS.md 里没有把本 skill 的七条措辞抄一遍（只留指回 + 本项目差异）？
 - [ ] 两份名单只落在 §目录 的锚点行一处（产物落点等段落只指回，脚本读锚点）？
 - [ ] 引用 `injection-map.md` 前重新实测过？没把快照当结论？
 - [ ] 第 4 条的可移植性限制已在汇报里写明（绝对软链 + 不进 git + 谁维护）？
