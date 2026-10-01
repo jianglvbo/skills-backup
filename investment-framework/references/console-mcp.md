@@ -37,7 +37,7 @@
 
 ## ⚠️ 枚举码硬约束（落库避坑 · 2026-08-31 实测）
 
-`review_record` 的 `checks[].status` 等枚举 **优先传 MySQL 字典英文码，传中文会外键报错**（`foreign key constraint fails ... dict_*`）。全量对照见投资框架 skill 的 `investment-refine/references/refine-schema.md`「二B 字典码对照表」，要点：
+`review_record` 的 `checks[].status` 等枚举 **优先传 MySQL 字典英文码，传中文会外键报错**（`foreign key constraint fails ... dict_*`）。全量对照见投资框架 skill 的 `references/refine-schema.md`「二B 字典码对照表」，要点：
 
 - `layer`：`my`/`blogger`/`other`/`macro`/`workspace`（**2026-08-31 起兼容中文**：我的/博主/其他/宏观，服务端自动映射；`category`/`relation` 同样兼容中文）
 - `category`：`analysis_framework`/`trading_system`/`investment_mentality`/`investment_insight`/`stock`/`industry`/`macro`
@@ -80,4 +80,4 @@ mcpServers:
 ## 职责边界
 
 - 本 MCP = 控制台域（读 MySQL 派生数据 + vault 文件操作 + 审查落库）
-- 知识库流水线（提炼/审查/粗加工的执行逻辑）走投资框架 skill（`investment-refine` / `investment-review`），审查落库调用本 MCP 的 `review_record`（REST POST /api/review/record 兼容）；提炼链路落库已下线（见上），`/api/refine/*` 端点已随工具一起删除
+- 知识库流水线（提炼/审查/粗加工的执行逻辑）走投资框架 skill（`提炼环节` / `审查环节`），审查落库调用本 MCP 的 `review_record`（REST POST /api/review/record 兼容）；提炼链路落库已下线（见上），`/api/refine/*` 端点已随工具一起删除

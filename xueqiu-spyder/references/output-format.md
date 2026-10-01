@@ -1,6 +1,6 @@
 # 帖子集输出格式规范
 
-> 由 xueqiu-spyder SKILL.md Output Format 引用（2026-09-26 起 post-fetch 已并入本 skill）。帖子集按 #29 例外流程直接进提炼（investment-refine 加载），不经粗加工。
+> 由 xueqiu-spyder SKILL.md Output Format 引用（2026-09-26 起 post-fetch 已并入本 skill）。帖子集按 #29 例外流程直接进提炼（投资框架 skill 提炼环节加载），不经粗加工。
 > **2026-09-26 feed 模式新增**：多博主帖子集（发布行级 `作者：`）、回复内容块（引用卡结构化）、时间来源标记。
 
 ## 字段表

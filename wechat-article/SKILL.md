@@ -4,7 +4,7 @@ description: >
   提取微信公众号文章正文并转为 Markdown。当用户发送 mp.weixin.qq.com 链接，或提到"公众号文章"、"微信文章"、"提取公众号"、"抓取公众号"时使用。
   支持标题、作者、公众号名称、发布日期和正文的完整提取，可直接写入 Obsidian 粗制品目录。
   触发词：「公众号文章」「微信文章」「提取公众号」「抓取公众号」「mp.weixin.qq.com」。
-  排除条件：非微信来源（雪球/抖音/得到等）走对应 skill；文章解析后需提炼时交 investment-refine。
+  排除条件：非微信来源（雪球/抖音/得到等）走对应 skill；文章解析后需提炼时交投资框架 skill（提炼环节）。
 version: 1.1.1
 agent_created: true
 ---

@@ -3,7 +3,7 @@
 """
 Obsidian 投资知识库 · 结构审查自动扫描器
 ========================================
-本脚本是 `investment-review` skill「结构审查」维度的自动化执行器。
+本脚本是 investment-framework 审查环节（references/review.md「结构审查」）的自动化执行器。
 
 覆盖维度（与 SKILL.md 结构审查一一对应）：
   - 归类正确性      → template_for() / unclassified

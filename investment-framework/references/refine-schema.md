@@ -1,6 +1,6 @@
 # 提炼落库判据（§六分流矩阵 / §七八问 / §八写入硬约束＝现行必用）＋ 旧 refine_record 契约（§一~§五＝历史）
 
-> ✅ **§六 / §七 / §八 是现行规则，提炼时必须照做**（investment-refine SKILL 第二步第 5 条 / 第三步 3.0 直接引用）：分流决策矩阵、落库前置八问、写入硬约束与低质帖判据都在下面这三节。
+> ✅ **§六 / §七 / §八 是现行规则，提炼时必须照做**（提炼环节 SKILL 第二步第 5 条 / 第三步 3.0 直接引用）：分流决策矩阵、落库前置八问、写入硬约束与低质帖判据都在下面这三节。
 >
 > ⚠️ **§一~§五（`refine_record` 请求体结构）已于 2026-09-14 退役**：`refine_record` 工具与 `refine_record`/`refine_target_sub` 两张表已下架，**仅供查阅历史数据**（旧记录备份 `~/Project/investment-dashboard/backups/refine_legacy_20260913155544/`）。**`refine_trace`（7 步判定）亦已于 2026-09-26 下线**（framework-rules #54：提炼步骤落库整体退役，备份 `out/zcode/backups/refine-tables-20260926.json`）；本文件保留六分法与信号判据等**判定规则**供提炼执行参照，不再有任何落库上报动作。
 
@@ -211,7 +211,7 @@
 
 **雪球组合不是主题（2026-09-12 用户指出 `miniAAA` 被误建为个股）**：帖子里形如 `$组合名(ZH123456)$` 的是**雪球组合**（往往是别人的组合），**不入个股/行业/市场三大主题**，也不建 `console_ensure_subject`。处理方式：组合名连同代号原样留在 `target` 文本里（如 `miniAAA(ZH3207194)`），正文照录；组合的收益/调仓本身不构成对该组合所持个股的判断。**同类**：纯小写拉丁短名（如 `cww`）是博主的代称/未识别代号 → 先用原文线索还原成真名，还原不了就只留 `target` 文本、不建主题（不要拿代号当主题名）。服务端已内置门禁拦截这两类。
 
-**实体与提及判定（2026-09-12 新结构）**：言论落库时按 `investment-refine/references/stock-mention-rules.md` 判定文中出现的词是不是个股（关键词邻接 + 二元分类特征），并写 `statement_stock_rel`；行业/市场命中 `industry.name` / `market.name` 才建对应 rel。**言论一定挂博主**；**个股一定挂行业**（`stock_industry_rel`，可多行业，建股时用 `industryName` 传入）。**组合（`$名称(ZH123456)$`）与未识别代号不入实体**，只留 `target` 文本。
+**实体与提及判定（2026-09-12 新结构）**：言论落库时按 `references/stock-mention-rules.md` 判定文中出现的词是不是个股（关键词邻接 + 二元分类特征），并写 `statement_stock_rel`；行业/市场命中 `industry.name` / `market.name` 才建对应 rel。**言论一定挂博主**；**个股一定挂行业**（`stock_industry_rel`，可多行业，建股时用 `industryName` 传入）。**组合（`$名称(ZH123456)$`）与未识别代号不入实体**，只留 `target` 文本。
 
 **优先级（2026-09-10 更新）**：**P1 必查必录** = `trade 买卖` / `research 研究` / **`predict 预测`**（2026-09-10 用户拍板由 P2 提升）→ P2 = `view 观点` / `insight 心得` → P3 `chat 闲聊`（高门槛）。
 

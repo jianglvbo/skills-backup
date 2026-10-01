@@ -1,21 +1,6 @@
----
-name: investment-refine
-description: >
-  投资框架提炼执行器。直接执行：读取原文 → 分析 → 创建框架条目 → 汇报结果。
-  一篇帖子可拆为多条框架条目（一对多）。
-  触发词：「提炼」「归档框架条目」。
-  环节词归执行器所有（investment-framework 已让出粗加工/归档/提炼/审查这几组词），用户说「提炼」即命中本 skill；
-  整链编排走 investment-framework。区别于 investment-review（审查）与 xueqiu-spyder（采集）。
-license: MIT
-agent_created: true
-metadata:
-  version: "3.0.0"
-  short-description: 投资框架提炼执行器（直接执行）
-compatibility: 通用
+# 环节：提炼（refine）
 
----
-
-# 提炼执行器
+> 本文件是 investment-framework 的**提炼环节细则**，由 SKILL.md 路由表分流进入；参数（路径、模板、标签体系）由路由入口传入，缺参即报错。直接执行：读取原文 → 分析 → 创建框架条目 → 汇报结果，一篇帖子可拆为多条框架条目（一对多）。
 
 ---
 
@@ -29,9 +14,8 @@ compatibility: 通用
 - **忠实原文**：可重组表达、优化结构，但绝不捏造、编撰、偏离原文事实。比喻和案例必须来自原文
 - **简体中文产出**：框架条目正文一律用简体中文。若原始资源仍为繁体（粗加工遗漏），提炼时作兜底繁转简，仅字形转换、不改用词语气
 - **标签来自标签体系，与文件夹分类互补**：标签捕捉文件夹无法表达的跨维度信息，允许跨分类引用（如投资心得文件可标分析框架标签）。市场/行业标签仅在内容确实仅限特定市场/行业时添加，通用心得不强制绑定。标签宁精勿滥，不自造标签
-- **条目间关联**：仅指同源多条条目之间的逻辑关联，在执行汇报中标注关联方向；跨 vault 的关联备注在审查阶段处理。**提炼阶段不在文件中创建任何关联章节**——既不输出 `## 关联` 章节，也不输出空脚注占位。条目间关联的正式落地是审查阶段写入文末脚注区的关联脚注（`[^enhance-N]`/`[^complement-N]` 等，见 footnote-taxonomy.md）
+- **条目间关联**：仅指同源多条条目之间的逻辑关联，在执行汇报中标注关联方向；跨 vault 的关联备注在审查阶段处理。**提炼阶段不在文件中创建任何关联章节**——既不输出 `## 关联` 章节，也不输出空脚注占位。条目间关联的正式落地是审查环节写入文末脚注区的关联脚注（`[^enhance-N]`/`[^complement-N]` 等，见 footnote-taxonomy.md）
 - **模板驱动**：执行时每个条目必须使用对应分类的模板填写 frontmatter + 正文
-- **参数全部由编排者传入**：缺参即报错
 
 ### 禁止行为
 
@@ -51,7 +35,7 @@ compatibility: 通用
 
 ## Workflow
 
-### 前置条件（由编排者保障）
+### 前置条件（由 SKILL.md 路由入口保障）
 
 - **常规路径**：输入来自 `工作区/原始资源/` 且 `status=待提炼`；**硬判定（#22）以文件物理位置为准，不看 `status` 值**——仍在 `工作区/粗制品/` 的采集件一律不得提炼（#29/#30 例外见下）。
 - **例外路径（#29 帖子集，雪球主路径）**：雪球帖子集原文已在采集时落 `post_history`，提炼从库内读取（MCP `post_history` `action=get`/`check`），**不经粗加工、不进原始资源、不读不产生 vault 文件**。
@@ -91,7 +75,7 @@ compatibility: 通用
 读取原文全文（常规路径：`工作区/原始资源/` 文件；**帖子集路径：`post_history` 库内原文**，MCP `post_history` `action=get`/`check`），分析内容：
 
 1. 判断每条内容的归属层（我的/博主/其他）和分类（分析框架/交易体系/投资心态/投资心得/个股/行业/宏观）
-2. 标签来自标签体系（investment-framework/references/tag-taxonomy.md），允许跨分类引用；通用心得/心态不强制加市场/行业标签。**禁止裸标签**：tags 必须挂一级分类前缀（如 `投资心态/心理偏误/后视偏差`、`分析框架/估值`），**禁止 `AI`/`泡沫`/`估值` 这类单层裸词**——tag-taxonomy 层级硬约束（最少二级、最多三级）；落库看板与写入文件 frontmatter 的 tags 必须一致
+2. 标签来自标签体系（references/tag-taxonomy.md），允许跨分类引用；通用心得/心态不强制加市场/行业标签。**禁止裸标签**：tags 必须挂一级分类前缀（如 `投资心态/心理偏误/后视偏差`、`分析框架/估值`），**禁止 `AI`/`泡沫`/`估值` 这类单层裸词**——tag-taxonomy 层级硬约束（最少二级、最多三级）；落库看板与写入文件 frontmatter 的 tags 必须一致
 3. **检查库内关系（分层检索链 + 关键词决策规则）**：决定产物 新建/追加/互补 前，按优先级链检索库内——
    - **① 同作者同类分类**（最高优先）：读取该作者同分类下已有条目（如 `博主/雪月霜/分析框架/`），命中 → 追加/互补
    - **② 全库主题兜底**：未命中再按**关键词**扫全库（跨作者/跨分类，防重复建设——两位博主同主题时不得各建一份）
@@ -108,7 +92,7 @@ compatibility: 通用
 
 - **wiki 条目**：内容先落临时文件，过预检再写入正式路径：
   ```bash
-  python3 investment-framework/scripts/verify-format.py --preflight /tmp/draft.md
+  python3 scripts/verify-format.py --preflight /tmp/draft.md
   # 退出码 0 = 通过可写入；1 = 有问题（逐项修正后重跑）
   ```
   预检覆盖（写入前拦截）：source 缺失/标量格式、`date` 字段越界、日期带引号、空标题、标题嵌段落、脚注孤儿、`## 来源`/空脚注残留、来源 blockquote、`{...}` 模板残留、`## 关联` 章节。
@@ -117,13 +101,13 @@ compatibility: 通用
 按分析结果直接执行：
 
 1. 按归属层和分类确定文件路径
-2. 选择对应模板（从编排者传入的 templates）
+2. 选择对应模板（assets/{模板名}.md，纯结构骨架）
 3. 创建文件，填写 frontmatter + 正文内容。正文按 template-guide.md 的写作指引填充（模板为纯结构骨架，各 section 写作要求统一在 references/template-guide.md），保留原文的比喻、案例、推理链条，用自然语言段落而非干巴巴的要点罗列。**写入硬约束**（wikilink 完整路径 / 个股带代码 / 无 `## 来源` 段 / 模板 section 全量 / frontmatter 字段顺序 / `star: false` + `delete:` 常驻 / 日期裸写 / 产出物去 emoji）——**完整清单见 `references/refine-schema.md` §八**，权威源为 `framework-rules.md` 对应编号
-4. 条目间关联在执行汇报中标注方向即可，**不在文件中创建 `## 关联` 章节或空脚注占位**。该关联的正式落地是审查阶段写入文末脚注区的关联脚注（`[^enhance-N]`/`[^complement-N]` 等，见 footnote-taxonomy.md）。仅当正文确有具体数据/时效判断时，提炼阶段才输出文末脚注定义并填 `[^data-N]`/`[^date-N]`（脚注定义放文末，无 `## 脚注` 标题、无 `---` 分隔线——Obsidian 阅读模式自动渲染分割线）
+4. 条目间关联在执行汇报中标注方向即可，**不在文件中创建 `## 关联` 章节或空脚注占位**。该关联的正式落地是审查环节写入文末脚注区的关联脚注（`[^enhance-N]`/`[^complement-N]` 等，见 footnote-taxonomy.md）。仅当正文确有具体数据/时效判断时，提炼阶段才输出文末脚注定义并填 `[^data-N]`/`[^date-N]`（脚注定义放文末，无 `## 脚注` 标题、无 `---` 分隔线——Obsidian 阅读模式自动渲染分割线）
 5. **不写任何博主画像 md**（画像已退役、内容只在看板）——涉及已登记博主时，言论按分流矩阵落库到 `statement` 六表即可，看板自动展示；**具象化指针（`wikiRef`）用完整路径**：`见 [[博主/{名}/{分类}/{文件名}]]`，禁止 `见 [[文件名]]`
 6. 如涉及宏观事件：通用宏观框架放 `宏观/`，博主的具体宏观分析放 `博主/{博主名}/宏观/`，填写 `event` 字段以便跨博主聚合，并在传导路径中关联行业/个股 wikilink
 7. 将源文件的 status 改为 `已提炼`（常规路径）；帖子集路径按 #29 将源文件移入 `~/.Trash`
-8. **产出校验**：本批次条目全部创建完成后，执行 `investment-framework/scripts/verify-format.py {VAULT_ROOT} --scope 其他,博主,宏观`（纯标准库，无第三方依赖）回检段落布局/模板残留/模板核心段落标题完整性；发现问题当场补齐后重跑至 0 问题，再进入第四步
+8. **产出校验**：本批次条目全部创建完成后，执行 `python3 scripts/verify-format.py {VAULT_ROOT} --scope 其他,博主,宏观`（纯标准库，无第三方依赖）回检段落布局/模板残留/模板核心段落标题完整性；发现问题当场补齐后重跑至 0 问题，再进入第四步
 9. **学习推荐下发（2026-09-30 用户要求）**：本批提炼产物（言论正文或其具象化 wiki 条目）中含**值得用户学习**的内容——可迁移的方法论/交易纪律/反直觉认知/高价值判断逻辑——按 assign-tasks skill 下发一条看板任务汇总提醒（`MCP note_item type=task source=agent`，priority=normal，title 祈使句点明「读什么」，content 四段逐条列「条目 + 出处指针（`stmt:<id>` / `file:<vault路径>`）+ 一句话为什么值得学」）；**每批至多一条、宁缺毋滥**——普通观点/常识性内容不算值得学习，无合格内容就不发；下发前按 assign-tasks 查重（同类推荐仍有 open 任务则并入不新建），下发清单列入第四步汇报
 
 ### 第四步：汇报结果
@@ -132,7 +116,7 @@ compatibility: 通用
 
 ### 第五步：同步数据看板
 
-**提炼步骤落库已下线**（2026-09-26 用户拍板，framework-rules #54）：`refine_trace`/`refine_review` 工具与 `refine_step`/`refine_review`/`refine_chain_step` 三表已删除，**不再上报 7 步判定**。提炼产物照常落各自存储（言论六表 / wiki 条目，各自的落库动作不变）；用户对提炼结果的异议直接写**待决策队列**（第一步 1.1），agent 下次提炼时内化成规则。
+**提炼步骤落库已下线**（2026-09-26 用户拍板，framework-rules #54）：`refine_trace`/`refine_review` 工具与 `refine_step`/`refine_review`/`refine_chain_step` 三表已删除，**不再上报 7 步判定**。提炼产物照常落各自存储（言论六表 / wiki 条目，各自的落库动作不变）；用户对提炼结果的异议直接写**待决策队列**（第一步 1.1），下次提炼时内化成规则。
 
 ## Output Format
 
@@ -149,12 +133,12 @@ compatibility: 通用
 
 | 场景 | 加载文件 | 内容 | 方式 |
 |:---|:---|:---|:---|
-| 提炼时 | investment-framework/references/tag-taxonomy.md（由编排者传入） | 标签分类体系，用于选择标签 | 读取 |
-| 提炼时 | investment-framework/references/footnote-taxonomy.md（由编排者传入） | 脚注类型定义，用于 [^data-N]/[^date-N] 格式 | 读取 |
-| 提炼时 | investment-framework/references/template-guide.md（由编排者传入） | 各模板 section 写作指引（模板为纯结构骨架，写作要求统一在此） | 读取 |
+| 提炼时 | references/tag-taxonomy.md | 标签分类体系，用于选择标签 | 读取 |
+| 提炼时 | references/footnote-taxonomy.md | 脚注类型定义，用于 [^data-N]/[^date-N] 格式 | 读取 |
+| 提炼时 | references/template-guide.md | 各模板 section 写作指引（模板为纯结构骨架，写作要求统一在此） | 读取 |
 | 提炼后落库 | references/refine-schema.md | 分流决策矩阵（§六）、落库八问（§七）、写入硬约束（§八） | 读取 |
 | 帖子集提炼 | references/refine-checklist.md | 精华去糟粕价值流水线、灰区裁决（framework-rules #29 执行版，xueqiu-spyder 交接后加载） | 读取 |
-| 提炼时 | investment-framework/assets/{模板名}.md（由编排者传入） | 对应分类的 frontmatter + 正文模板（纯结构骨架） | 读取 |
+| 提炼时 | assets/{模板名}.md | 对应分类的 frontmatter + 正文模板（纯结构骨架） | 读取 |
 
 ---
 
@@ -162,7 +146,7 @@ compatibility: 通用
 
 | 优先级 | 来源 |
 |:---|:---|
-| 1 | 编排者传入的参数（路径、模板、标签体系） |
+| 1 | SKILL.md 路由入口传入的参数（路径、模板、标签体系） |
 | 2 | 用户约定（三层归属、六大分类） |
 | 3 | 模板文件（frontmatter 字段规范） |
 | 4 | Obsidian wikilink 规范 |

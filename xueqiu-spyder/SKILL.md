@@ -4,10 +4,10 @@ description: |
   雪球博主帖子采集（编排+工具一体；2026-09-26 由原抓取工具层与 post-fetch 编排层合并而成）。
   **feed 流式采集为日常增量缺省**：关注流一次会话覆盖全部已关注博主（多博主帖子集、流内展开与计数、
   引用卡结构化为回复内容、流断点书签取代逐博主 cutoff），风控暴露最小；user 逐博主翻页保留给
-  首采/深窗口/补漏。产物落 post_history 后交接 investment-refine 提炼。
+  首采/深窗口/补漏。产物落 post_history 后交接投资框架 skill 提炼。
   触发词：「xueqiu-spyder」「spyder 抓取」「雪球抓取」「抓取雪球」「采集雪球」「雪球帖子」
   「xq fetch」「雪球动态」「采集帖子」。
-  排除条件：含「提炼」「分析」「画像」→ investment-refine；含「审查」→ investment-review。
+  排除条件：含「提炼」「分析」「画像」→ 投资框架 skill（提炼环节）；含「审查」→ 投资框架 skill（审查环节）。
 license: MIT
 agent_created: true
 metadata:
@@ -26,7 +26,7 @@ compatibility: macOS / Linux
 - **ego lite 通道唯一**（2026-09-16 收口）：复用本机已登录雪球的 ego lite（socket 桥 `ego_browser.py`+`ego_bridge.js`）；Chrome 通道代码已整段删除，`XUEQIU_TRANSPORT` 只认 `ego`。
 - **防漏采铁律**：只有采集真正完成才推进断点/cutoff——退出码 1（失败）/ 3（窗口起点或书签未翻到）一律禁写；宁可重复采，不可漏采。
 - **风控自控**：滑块/安全验证不硬撞——激活 ego 交用户接管、过完自动重试；**静默空页＝风控**（博主主页不可能零帖子，空列表一律按拦截处理，绝不判「无新帖」）；连续失败熔断。
-- **纯文本产出**：写入前逐条净化（删 `![[..]]`/`![](url)`/`<img>`/裸图 URL/表情占位；Unicode emoji 保留）；`作者` 值不得含 `发布于|来自|关注`，判不出置 `Unknown`；采集阶段不猜 content_type/view_date（investment-refine 判定）。
+- **纯文本产出**：写入前逐条净化（删 `![[..]]`/`![](url)`/`<img>`/裸图 URL/表情占位；Unicode emoji 保留）；`作者` 值不得含 `发布于|来自|关注`，判不出置 `Unknown`；采集阶段不猜 content_type/view_date（投资框架提炼环节判定）。
 
 ### 禁止行为
 - 绝不内置或硬编码博主列表（以关注列表↔控制台同步为准）

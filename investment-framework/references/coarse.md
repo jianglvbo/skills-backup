@@ -1,22 +1,6 @@
----
-name: investment-coarse-processor
-description: >
-  投资框架粗加工执行器（非雪球来源）。读取粗制品 → 整理格式、去广告 → 补全 metadata → 移入原始资源。
-  不生成提炼预览表，拆分决策由提炼环节负责。
-  触发词：「粗加工」「归档」「整理帖子」。
-  环节词归执行器所有（investment-framework 已让出粗加工/归档/提炼/审查这几组词），用户直接说即命中本 skill；
-  整链编排走 investment-framework。雪球帖子集不走本 skill（#29 原文直取 post_history）；
-  区别于 investment-refine（提炼）与 investment-review（审查）。
-license: MIT
-agent_created: true
-metadata:
-  version: "2.5.0"
-  short-description: 投资框架粗加工执行器（非雪球来源）
-compatibility: 通用
+# 环节：粗加工（coarse）
 
----
-
-# 粗加工执行器
+> 本文件是 investment-framework 的**粗加工环节细则**（非雪球来源），由 SKILL.md 路由表分流进入；参数 `{ source_path, target_dir, blogger_console_path }` 由路由入口传入，缺参即报错。读取粗制品 → 整理格式、去广告 → 补全 metadata → 移入原始资源。不生成提炼预览表，拆分决策由提炼环节负责。雪球帖子集不走本环节（#29 原文直取 post_history）。
 
 ---
 
@@ -28,7 +12,6 @@ compatibility: 通用
 - **拆分决策留给提炼环节**：粗加工只负责整理格式和补全 metadata，不判断内容应归入哪个分类
 - **繁体转简体**：粗制品正文若为繁体中文，整理时必须转为简体中文入库；仅做繁简字形转换，保留原文用词、语气、比喻、案例，不改写内容
 - **博主判断依赖看板博主表**：对照**看板 MySQL `blogger` 表**（`GET /api/bloggers/live` 或 MCP `list_bloggers`）判断是否为已登记博主（`工作区/博主控制台.md` 已于 2026-09-07 退役删除，**不要再找该文件**）
-- **参数全部由编排者传入**：缺参即报错，不硬编码路径
 
 ### 禁止行为
 
@@ -96,7 +79,7 @@ tags: []
 |:---|:---|:---|:---|
 | 补全 frontmatter 时 | references/frontmatter-rules.md | 7 字段规范、引号嵌套规则、tags block list 格式 | 读取 |
 
-其余路径和规则由编排者传入。
+其余路径和规则由 SKILL.md 路由入口传入。
 
 ---
 
@@ -104,7 +87,7 @@ tags: []
 
 | 优先级 | 来源 |
 |:---|:---|
-| 1 | 编排者传入的参数（路径、控制台） |
+| 1 | SKILL.md 路由入口传入的参数（路径、控制台） |
 | 2 | 用户约定（frontmatter 字段规范） |
 | 3 | Obsidian frontmatter 规范 |
 

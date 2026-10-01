@@ -2,7 +2,7 @@
 
 > 适用对象：xueqiu-spyder 采集并已落 `post_history` 的博主帖子集（2026-09-12 起从库内原文直接提炼，不再有 vault 粗制品文件）。
 > 权威规则：`framework-rules.md` #29（帖子集例外流程）。本清单是 #29 的执行版，提炼前必加载、逐条照做。
-> 本清单由 xueqiu-spyder 采集完成后、交给 investment-refine 执行，采集阶段不分析内容（遵守 SKILL.md 禁止行为）。
+> 本清单由 xueqiu-spyder 采集完成后、交给 提炼环节 执行，采集阶段不分析内容（遵守 SKILL.md 禁止行为）。
 
 ## 0. 例外流程（与常规流水线不同；2026-09-12 改为「从 post_history 直提」）
 - **原文来源＝`post_history` 库内原文**（采集时已直接落库，规则 #41）：用 MCP `post_history` `action=get`（单帖全文）/`action=check`（按博主+时间窗列清单）读取，**不进原始资源、不置 `status=待提炼`、不读也不产生 vault 文件**。
@@ -41,7 +41,7 @@
 >
 > 旧四类语义已被覆盖：具象化 → `wikiRef` 字段（research/insight）+ wiki 条目；观点 → `view`；信号 → `trade`（结构化 `op`/`price`）或 `view` 的 signal 文本；互动 → 回复类帖的 `//@` 语境标注（见 §2）。
 
-**六分法落位表（权威）**：见 `investment-refine/references/refine-schema.md`「六、博主言论分流决策矩阵」。
+**六分法落位表（权威）**：见 `references/refine-schema.md`「六、博主言论分流决策矩阵」。
 
 **优先级（2026-09-10 更新）**：P1 必录 = `trade` / `research` / **`predict`**（原 P2 提升）→ P2 = `view` / `insight` → P3 = `chat`（高门槛）。
 

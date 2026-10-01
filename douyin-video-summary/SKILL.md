@@ -4,7 +4,7 @@ description: >
   Summarize Douyin (TikTok China) videos by extracting audio, transcribing with whisper.cpp, and generating structured summaries.
   Use when a user shares a Douyin link and wants a text summary of the video content. Supports optional sync to Feishu (Lark) docs.
   Triggers on Douyin URLs (v.douyin.com, douyin.com/video/).
-  Exclusions: non-Douyin sources go to their dedicated skills; if the summarized content needs knowledge-base refinement, hand off to investment-refine.
+  Exclusions: non-Douyin sources go to their dedicated skills; if the summarized content needs knowledge-base refinement, hand off to the investment-framework skill (refine stage).
 agent_created: true
 ---
 

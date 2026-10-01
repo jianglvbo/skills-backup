@@ -108,10 +108,13 @@ FEED_JS = r"""
   // ⚠ 归属只认**本帖自己**：回复/转帖卡会把「被回复帖」的图渲染进同一张卡，整卡无差别扫描就把父帖
   //   的图算到回复头上（2026-10-01 实测：post_image 45 行只对应 24 个不同 URL，「斯宾诺莎的世界」
   //   9 条回复共用 1 张图，含图率被虚高到 38.6%）。用户拍板「图归真正拥有它的帖」。
-  //   判据＝跳过 blockquote/[class*=forward] 子树，**不能把范围收到 .timeline__item__content**——
-  //   同日探针实测：本帖自己的图长在 div.content__addition.pic__thumb（正文块的**兄弟**、挂在卡尾），
-  //   正文块里只有折叠态的 a.co-img-link；按正文块扫会把样本里 9 张真图全丢掉。
-  //   而样本里「父帖图」inForward=1、「本帖图」inForward=0 恰好完全分开，这条判据是干净的。
+  //   判据＝只跳过 [class*=forward] 子树。两条实测出来的边界，别再改：
+  //   ① 不能把范围收到 .timeline__item__content——本帖自己的图长在 div.content__addition.pic__thumb
+  //      （正文块的**兄弟**、挂在卡尾），正文块里只有折叠态的 a.co-img-link，按正文块扫真图全丢。
+  //   ② 不能顺手排除 <blockquote>——雪球把**本帖自己的九宫格**渲染成
+  //      blockquote.status__images.status__images--timeline（实测 CSCK 411157111 的 3 张自拍图），
+  //      带 blockquote 判据会把它们一起删掉；被引帖的图外层是 blockquote.timeline__item__forward，
+  //      [class*=forward] 一条就够（实测 411156409：自己的 a.co-img-link 留下、父帖两处图都挡掉）。
   const junk = u => !u || /emoji|face_regular|badge|medal|identity_icon|xavatar|\/community\/|_logo|icon_|commentlist_tag|_tag-|sprite/i.test(u);
   const norm = u => (u || '').replace(/!\d*x*\d*\.jpg$|!custom\.jpg$|!800\.jpg$/, '');
   const collectImgs = (card, content) => {
@@ -126,7 +129,7 @@ FEED_JS = r"""
       return -1;                       // 图不在正文块内（如折叠锚在卡尾）→ -1，渲染端退卡尾
     };
     for (const nd of card.querySelectorAll('img, a.co-img-link, a[href]')) {
-      if (nd.closest('blockquote, [class*=forward]')) continue;   // 被引/父帖的图不归本帖
+      if (nd.closest('[class*=forward]')) continue;   // 被引/父帖的图不归本帖（自己的九宫格也是 blockquote，不能按 blockquote 判）
       const raw = nd.tagName === 'IMG' ? nd.src : nd.getAttribute('href');
       if (junk(raw)) continue;
       const u = norm(raw);

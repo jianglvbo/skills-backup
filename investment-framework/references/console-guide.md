@@ -4,14 +4,14 @@
 
 ## 1. 看板是什么
 
-纯前端 + 零依赖 Node 轻服务，**本地运行**（`~/Project/investment-dashboard`，端口 8698，launchd 托管 com.investment-dashboard）。读本地 iCloud vault（`config.vaultRoot` 指向 Obsidian 库），派生索引与运营记录写**远程共享 MySQL**（`investment-dashboard`，host 见 config.json；方案 A：预测控制台等已迁库，vault 不再存控制台 Markdown）。MCP 端点 `http://127.0.0.1:8698/mcp`（Bearer token 见 `investment-framework/references/console-mcp.md`）。**看板不产生知识，只呈现流水线结果。**
+纯前端 + 零依赖 Node 轻服务，**本地运行**（`~/Project/investment-dashboard`，端口 8698，launchd 托管 com.investment-dashboard）。读本地 iCloud vault（`config.vaultRoot` 指向 Obsidian 库），派生索引与运营记录写**远程共享 MySQL**（`investment-dashboard`，host 见 config.json；方案 A：预测控制台等已迁库，vault 不再存控制台 Markdown）。MCP 端点 `http://127.0.0.1:8698/mcp`（Bearer token 见 `references/console-mcp.md`）。**看板不产生知识，只呈现流水线结果。**
 
 ## 2. 数据契约（流水线写入）
 
 | 写入方 | 端点 | 数据 | 看板呈现 |
 |:---|:---|:---|:---|
-| investment-refine | 产物落各自存储（言论六表 / wiki 条目，各自落库动作不变）；**提炼步骤落库已下线**（2026-09-26 用户拍板，framework-rules #54——`refine_trace`/`refine_review` 工具与三表已删除，提炼记录页不再存在） | —（无链路落库；用户异议走 `pending_decision` 待决策与 `console_statement_review` 言论卡复核建议） | — |
-| investment-review 第四步 | `MCP review_record` | 结构化审查（checks/groups/recycle） | 审查模块（2026-08-16 起不再产出 md 审查报告） |
+| 提炼环节 | 产物落各自存储（言论六表 / wiki 条目，各自落库动作不变）；**提炼步骤落库已下线**（2026-09-26 用户拍板，framework-rules #54——`refine_trace`/`refine_review` 工具与三表已删除，提炼记录页不再存在） | —（无链路落库；用户异议走 `pending_decision` 待决策与 `console_statement_review` 言论卡复核建议） | — |
+| 审查环节 第四步 | `MCP review_record` | 结构化审查（checks/groups/recycle） | 审查模块（2026-08-16 起不再产出 md 审查报告） |
 | 粗制品队列 | `GET /api/coarse/list` | 直接读 vault `工作区/粗制品/`；「已加工」状态由 **`refine_item.source_rel`**（wiki 链路）推导（2026-09-14 换源；原 `coarse_records`/`refine_record` 表均已删除，评分字段不再展示） | 粗制品模块 |
 | xueqiu-spyder 落库步 | `scripts/import-post-history.js`（批量）/ `MCP post_history`（单条 upsert） | 采集原文落 `post_history` 表（提炼前原文留档，**唯一用途=避免重采**） | 不呈现（后端留档；`post_history action=get/check` 供提炼与补采读取） |
 
@@ -58,7 +58,7 @@
 - thinking 每步来自第一步分析的真实判断（归属层铁律/标签体系/模板选择/同作者预检），**禁止事后编撰**
 - 涉及已登记博主：targets 同时含 `type:"blogger"` 言论条目（落 DB 单轨） + `bloggerUpdated:true`
 - 旧数据 `to[]` 字符串数组自动兼容归一化
-- **路径书写语义（2026-09-01 用户确认，写入侧硬约束）**：自由文本（reason/thinking/basis/verify.detail）中 `.md` 完整路径 = 写入方承诺该文件真实存在（本次检索命中或本条产物/源），前端渲染为可点击《文件名》跳 Obsidian；假想/被否决/未创建条目一律写《名称》（不带 `.md`）渲染为纯文本。前端存在性校验（vault 索引 ∪ 本条产物）仅兜底质检，权威判定在写入侧（规则源：investment-refine/references/refine-schema.md 四）
+- **路径书写语义（2026-09-01 用户确认，写入侧硬约束）**：自由文本（reason/thinking/basis/verify.detail）中 `.md` 完整路径 = 写入方承诺该文件真实存在（本次检索命中或本条产物/源），前端渲染为可点击《文件名》跳 Obsidian；假想/被否决/未创建条目一律写《名称》（不带 `.md`）渲染为纯文本。前端存在性校验（vault 索引 ∪ 本条产物）仅兜底质检，权威判定在写入侧（规则源：references/refine-schema.md 四）
 
 ## 4. ⚠️ 已退役：决策链路图规范（同上，随 refine_record 一起下架；看板现为「提炼链条七步」）
 
@@ -119,7 +119,7 @@
 | 健康检查 | `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8698/` → 200；`launchctl list \| grep investment-dashboard` → 第二列为退出码（非 0 即异常） |
 
 > **踩过的坑（2026-09-11）**：plist 原先写死 `~/.workbuddy/binaries/node/versions/22.22.2-2/bin/node`，WorkBuddy 升级把该版本删掉后**服务静默起不来**——`launchctl list` 显示退出码 `78`、端口无监听，但日志里没有任何报错（因为根本没启动到 node）。**排查口诀**：退出码非 0 且日志无新增 → 先验 `ProgramArguments` 里的可执行文件是否存在。现已改为启动器脚本自愈。
-**数据库注释约定（2026-09-11 补齐）**：`investment-dashboard` **每表每字段均带 COMMENT**（约定写在权威文件 `investment-framework/references/investment-dashboard.sql` 文件头）。新增表/字段后跑审计：
+**数据库注释约定（2026-09-11 补齐）**：`investment-dashboard` **每表每字段均带 COMMENT**（约定写在权威文件 `references/investment-dashboard.sql` 文件头）。新增表/字段后跑审计：
 
 ```bash
 node ~/Project/investment-dashboard/scripts/audit-schema-comments.js           # 列清单
@@ -131,7 +131,7 @@ node ~/Project/investment-dashboard/scripts/audit-schema-comments.js --strict  #
 **权威 schema 是生成物（2026-09-12 起）**：改库后必须重新导出 + 回放校验，否则文件与实库漂移（本轮就抓出过视图缺列、表名不一致）：
 
 ```bash
-node ~/Project/investment-dashboard/scripts/export-schema.js        # 实库 → investment-framework/references/investment-dashboard.sql（含 dict 内容快照）
+node ~/Project/investment-dashboard/scripts/export-schema.js        # 实库 → references/investment-dashboard.sql（含 dict 内容快照）
 node ~/Project/investment-dashboard/scripts/verify-schema-replay.js # 空库回放 + 逐列类型/注释比对；一致退出码 0，漂移 1
 ```
 
@@ -162,7 +162,7 @@ curl -s -X POST http://127.0.0.1:8698/api/cache/clear         # 手动失效（e
 
 ## 9. 编排者看板联动清单（自 SKILL.md 下沉）
 
-流水线结果写入本地运行的投资看板（`http://127.0.0.1:8698`，端口 8698，launchd 托管 com.investment-dashboard；读本地 iCloud vault、连远程 MySQL；连接与 token 见 `investment-framework/references/console-mcp.md`），看板不产生知识、只呈现结果：
+流水线结果写入本地运行的投资看板（`http://127.0.0.1:8698`，端口 8698，launchd 托管 com.investment-dashboard；读本地 iCloud vault、连远程 MySQL；连接与 token 见 `references/console-mcp.md`），看板不产生知识、只呈现结果：
 
 - **提炼** → 产物照常落各自存储（言论六表 / wiki 条目，各自落库动作不变）；提炼步骤落库与 `refine_trace`/`refine_review` 已下线（2026-09-26 用户拍板，framework-rules #54），提炼记录页不再存在
 - **审查** → `MCP review_record`（review 第四步已实现）→ 审查模块（2026-08-16 起不再产出 md 审查报告）

@@ -66,19 +66,19 @@
     - 值含单引号 → 双引号包裹：`title: "错过'时代'是最大的风险"`
     - 值同时含双引号和单引号 → 双引号包裹+转义：`title: "他说\"好\"了"`
     - **禁止**：双引号包裹的值内部出现未转义的双引号（如 `title: "理解"书""`）
-22. 提炼输入必须是原始资源且 `status=待提炼`：提炼（investment-refine）的输入必须来自 `工作区/原始资源/` 中 `status=待提炼` 的文档，**禁止**直接在 `工作区/粗制品/` 上提炼。判断以**原始资源为锚点**——若原始资源中不存在该文档的 `status=待提炼` 记录，说明仍在粗制品，编排者须先调用 investment-coarse-processor 完成粗加工（置 `status=待提炼`），再进入提炼。
+22. 提炼输入必须是原始资源且 `status=待提炼`：提炼环节的输入必须来自 `工作区/原始资源/` 中 `status=待提炼` 的文档，**禁止**直接在 `工作区/粗制品/` 上提炼。判断以**原始资源为锚点**——若原始资源中不存在该文档的 `status=待提炼` 记录，说明仍在粗制品，编排者须先走粗加工环节（references/coarse.md） 完成粗加工（置 `status=待提炼`），再进入提炼。
 23. `source` 字段（框架条目与原始资源）：YAML 数组，每项须引号包裹，**二选一形态**——内部来源用 wikilink，外部来源用 markdown 链接。**多个来源统一写入 `source`，框架条目正文不再设 `## 来源` 段落**（与正文 `## 来源` 段落二选一，现统一用 `source` 数组）。
     - **链式引用约定（2026-08-08 用户确认）**：**wiki 文件（框架条目）的 `source` 一律指向原始资源 wikilink** `[[工作区/原始资源/{文件名}]]`；**原始资源的 `source` 再指向真实 URL**（markdown 链接）。两级链式溯源——wiki 层不直接写 URL。**例外（无中间层直投）**：博主言论直接提炼（#29 帖子集路径）与截图/链接直投（#30 路径，**无原始资源中间层**）时，框架条目 `source` 可直接指向真实 URL——**没有原始资源可指向，URL 是唯一可溯源写法**（2026-08-08 用户确认：如「后视偏差」条目 source 直接写公众号 URL 属正确形态、非违规；审查时不得判为 `source_as_invalid`）。
     - **内部来源**（本库文档，如 `工作区/原始资源/` 下文件）→ wikilink：`"[[工作区/原始资源/{文件名}]]"`，可双向追溯、审查反查。
     - **外部来源**（雪球/公众号/网页/抖音等）→ markdown 链接：`"[{标题}（{作者} {YYYY-MM-DD}）]({真实URL})"`，URL 必填真实原文链接（雪球帖/公众号原文），**禁止用采集批次名**（批次提炼后即删，会成悬空引用，呼应 #96）。
     - **决策树**：来源是本库文件？→ wikilink；是外部链接？→ markdown 链接；两者都不是 → 报错。
-    - **粗加工提取规则**：粗制品 frontmatter 的 `url` 字段（笔记同步助手/插件写入的原始链接）是原始资源 source 的来源，粗加工时必须提取（见 investment-coarse-processor 第五步B）。
+    - **粗加工提取规则**：粗制品 frontmatter 的 `url` 字段（笔记同步助手/插件写入的原始链接）是原始资源 source 的来源，粗加工时必须提取（见 粗加工环节 第五步B）。
     - **禁止**：裸 URL（`source: "https://..."` 单行或 `- "https://..."` 数组项）、`[标题](相对路径)`、采集批次名、渠道名占位（如 `"AI整理 - 抖音"`、`"雪球长文"`）。链接文字禁止留空、禁止用超长脏 title（以文件名或简洁标题为准）。
     - 多条来源按「先内部后外部」排列；无来源则该字段留空数组 `source: []`，不加占位演示行。
     - 校验：`vault_review.py` 检测非法形态标 `source_as_invalid`；审查（结构审查）复核每条 source 形态符合本规则。
-24. 繁体转简体：粗制品若为繁体中文，入库的原始资源（含正文）必须转为简体中文；提炼产出的框架条目正文同样使用简体中文。仅做繁简字形转换，**保留原文用词、语气、比喻、案例、推理链条，不改写内容**。粗加工阶段是转换的主责环节（investment-coarse-processor）；提炼阶段（investment-refine）若发现原始资源仍为繁体，作兜底转换。
+24. 繁体转简体：粗制品若为繁体中文，入库的原始资源（含正文）必须转为简体中文；提炼产出的框架条目正文同样使用简体中文。仅做繁简字形转换，**保留原文用词、语气、比喻、案例、推理链条，不改写内容**。粗加工阶段是转换的主责环节（粗加工环节）；提炼阶段（提炼环节）若发现原始资源仍为繁体，作兜底转换。
 
-25. 删除原始资源须连带清理产物与引用痕迹：删除 `工作区/原始资源/` 中某文档时，必须一并清理其所有提炼产物与引用痕迹，保持 vault 无悬空 wikilink / 脚注。**执行前置（2026-08-14 强化）**：删除/回收/移动任何 wiki 条目或原始资源前，**必须**先运行 `investment-framework/scripts/check_inbound.py {VAULT_ROOT} <目标路径>` 反查全部 inbound 引用（wikilink / 关联脚注 / source 字段），按清单逐处清理后才允许删除——未跑反查不得删除（2026-08-14 教训：段永平 7 文件删除未反查，遗留 11 处悬空脚注直至审查才暴露）：
+25. 删除原始资源须连带清理产物与引用痕迹：删除 `工作区/原始资源/` 中某文档时，必须一并清理其所有提炼产物与引用痕迹，保持 vault 无悬空 wikilink / 脚注。**执行前置（2026-08-14 强化）**：删除/回收/移动任何 wiki 条目或原始资源前，**必须**先运行 `scripts/check_inbound.py {VAULT_ROOT} <目标路径>` 反查全部 inbound 引用（wikilink / 关联脚注 / source 字段），按清单逐处清理后才允许删除——未跑反查不得删除（2026-08-14 教训：段永平 7 文件删除未反查，遗留 11 处悬空脚注直至审查才暴露）：
     - 删除该原始资源对应的**所有框架条目**（提炼产物文件，一篇可拆多条故可能多个）；
     - 产物内定义的脚注（文末脚注区的 `[^x]` 定义 + 正文中的引用标记 `[^x]`）随文件删除一并清除；
     - vault 内**其他正文**（含博主档案、其他条目）中指向这些产物的 wikilink、关联脚注引用标记（`[^x]: ... [[产物]]` 类）全部清除；
@@ -99,7 +99,7 @@
    - **框架条目层**（提炼产出，落各分类模板）字段集：各分类模板定义者——`title` / `createDate` / `updateDate` / `author` / `star` / `delete` / `tags` / `source` + 分析档案额外 `标的` / `status` + 宏观额外 `event` / `时效状态` / `时间范围`。
    - **`star` 字段（2026-08-05 新增）**：好文章标记，取值 `true` / `false`（YAML 布尔裸写），**缺省 `false`**——提炼产出默认 `star: false`，用户看到好的文章再改为 `true`。仅内容型模板（方法论/分析档案/交易体系/心态/心得/行业/宏观/个股）含此字段；博主画像已退役入 `blogger` 表，不适用。`star` 是纯用户标记，提炼阶段**不从原文推断**（Agent 不自动打星），由用户手动维护。审查/校验脚本对 `star` 校验取值合法性（true/false，缺省 false 即合法），不参与内容质量判断。
    - **硬约束**：框架条目 frontmatter **禁止出现 `date` 字段**（那是原始资源层的发布日字段）；提炼从原始资源生成条目时，仅取 `author` / `source` 等语义对应字段，**绝不把原始资源的 `date` 带入条目**——否则会在条目层制造"流浪 date"，破坏 frontmatter 规范（呼应 #1 日期格式约定）。
-   - **字段顺序（canonical）硬约束**：框架条目 frontmatter 字段必须按所属分类模板的 canonical 顺序排列（各 `assets/*.md` 模板即唯一真相源）。标准 8 字段顺序：`title → createDate → updateDate → author → star → delete → tags → source`；分析档案：`title → 标的 → createDate → updateDate → author → star → delete → status → tags → source`；宏观事件型：`title → event → 时效状态 → 时间范围 → createDate → updateDate → author → star → delete → tags → source`。**禁止打乱顺序**（如 `source` 前置、`tags` 置底）。审查（investment-review 结构审查第三步）与 `vault_review.py` 据此检测顺序漂移。
+   - **字段顺序（canonical）硬约束**：框架条目 frontmatter 字段必须按所属分类模板的 canonical 顺序排列（各 `assets/*.md` 模板即唯一真相源）。标准 8 字段顺序：`title → createDate → updateDate → author → star → delete → tags → source`；分析档案：`title → 标的 → createDate → updateDate → author → star → delete → status → tags → source`；宏观事件型：`title → event → 时效状态 → 时间范围 → createDate → updateDate → author → star → delete → tags → source`。**禁止打乱顺序**（如 `source` 前置、`tags` 置底）。审查（审查环节 S3）与 `vault_review.py` 据此检测顺序漂移。
    - **`author` 必填**：每个框架条目必须有 `author`——wikilink 来源从原始资源取博主名；外部 URL 来源填原出处，无则填 `待补`。提炼产出条目若漏 `author` 视为 frontmatter 不完整（与审查自检联动）。
    - **`id` 字段豁免（2026-08-04 新增）**：`id`（形如 `id: docid_xxx_e`）是 Obsidian 第三方插件（如 Visit History 等阅读追踪类插件）写入的文档追踪 ID，**不属于框架字段集，不参与 canonical 顺序校验，不参与必填/缺失/引号检查**。提炼、粗加工、审查、格式校验（vault_review.py / verify-format.py）遇到 `id` 字段时**一律忽略**——不得删除、不得移动、不得报错。frontmatter 解析按"id 为外部字段"处理。
    - 这是当前 vault 内 31 个框架条目误含 `date` 的根因：提炼环节把原始资源的 `date` 一并复制进了条目。
@@ -111,7 +111,7 @@
     - 文件按规则 #9 归入对应市场子文件夹（A股/港股/美股），代码仅作标题标识、不重复表达市场。
 
 29. 帖子集例外流程（xueqiu-spyder 采集产出，**2026-09-12 改为「从 post_history 直提」**）：雪球博主采集集**不走常规流水线**（不进原始资源、不做粗加工），按以下例外处理：
-    - **原文来源＝`post_history`**：采集完成后帖子已直接落 `post_history`（规则 #41），提炼（investment-refine）**从库里读原文**（MCP `post_history` `action=get` 取单帖全文、`action=check` 按博主+时间窗列清单），**不再读取也不产生 vault 文件**——采集产物 md 是临时文件，落库 + 入库校验通过后即清理，`工作区/粗制品/` 不再保存帖子集。这是 #22（粗加工前置）的明确例外。
+    - **原文来源＝`post_history`**：采集完成后帖子已直接落 `post_history`（规则 #41），提炼环节**从库里读原文**（MCP `post_history` `action=get` 取单帖全文、`action=check` 按博主+时间窗列清单），**不再读取也不产生 vault 文件**——采集产物 md 是临时文件，落库 + 入库校验通过后即清理，`工作区/粗制品/` 不再保存帖子集。这是 #22（粗加工前置）的明确例外。
     - **摘要帖不可提炼（2026-09-09 用户确认，硬约束）**：标「摘要」的帖（详情页风控未补全全文、内容不完整）**一律跳过，不得提炼**——它们按设计不入 `post_history`，所以从库里取原文时天然只有「全文」帖。判定以采集侧发布行的 `全文`/`摘要` 标记为准（采集阶段已完成）。
     - **提炼后无需删源文件**：不存在源文件（同上）；库内「已提炼」状态由 `statement.source_url` 反查确认，不再回写帖子层标记。
     - **`source` 写真实原文链接（禁止用批次名）**：框架条目的 `source` 字段必须填**雪球原文帖子链接**——`[标题（博主 日期）](https://xueqiu.com/.../XXXXXX)`，取自该帖的 `[原文]` 链接（`post_history.source_url`）。**严禁用采集批次文件名**（如 `雪球采集-metalslime-2026年7月20日`）当 source：批次文件已不再留存，会成悬空/不可追溯引用。一条产物综合多篇帖则列多个链接。
@@ -136,7 +136,7 @@
     - **原文链接格式**：表格内链接一律用 `[原文](URL)`，不贴裸 URL（避免撑宽表格）。**禁止留空 `-`**——无来源帖链接则该行不建（见 #35）。
     - **落库唯一路径**：言论一律经 MCP `blogger_statement` 写入 MySQL（权威），由服务端镜像本段（段内 `<!-- statements:begin/end -->` 锚点之间）；**禁止手改本表格**——手改会在下一次写库时被整体覆盖，不一致项由系统标待复核。
     - **码值权威源**：`content_type` / `stance` 的合法码值以看板 MySQL `dict` 表为唯一权威（type=`post_content_type` / `stance`，`remark` 存判据、`sort_order` 定分节顺序；`op` / `trade_op` 已于 2026-09-12 随 op 列一同废弃，勿再引用）；服务端按 dict 校验、前端标签与 tab 顺序同源取用（`GET /api/meta/taxonomy`）。**新增或改名分类只改字典**，禁止在代码里硬加一份并行定义。
-    - **⚠ `dict.post_content_type.sort_order` ≠ 判定优先级**（2026-09-14 用户指出，此前并排放着极易误读）：`sort_order` 只管看板分节显示顺序；言论归类优先级是另一套、**自上而下命中即止**——`trade(1) > predict(2) > research(3) > insight(4) > view(5) > chat(6)`，权威定义在 `investment-refine/references/refine-schema.md` §六「博主言论分流决策矩阵」；**落库优先级还是第三条轴**（P1=trade/research/predict、P2=view/insight、P3=chat）——三条别混。
+    - **⚠ `dict.post_content_type.sort_order` ≠ 判定优先级**（2026-09-14 用户指出，此前并排放着极易误读）：`sort_order` 只管看板分节显示顺序；言论归类优先级是另一套、**自上而下命中即止**——`trade(1) > predict(2) > research(3) > insight(4) > view(5) > chat(6)`，权威定义在 `references/refine-schema.md` §六「博主言论分流决策矩阵」；**落库优先级还是第三条轴**（P1=trade/research/predict、P2=view/insight、P3=chat）——三条别混。
     - **用户复核驱动修正（`statement_review_sub`，子表 `_sub` 后缀）**：用户可在「言论追踪」右栏言论卡片**左滑**（MacBook 双指横向滑）点「复核」写入一句自然语言建议（如"这条应是观点·看多"），存于 MySQL 表 `statement_review_sub`（按 `statement_id` 唯一，`status` = open/applied）。**审查流程必须先处理这些复核**：调 MCP `console_statement_review(action=list, status=open)` 取全部未处理建议 → 逐条读「建议 + 该言论当前 content_type/stance/target/正文」→ 按建议用 `blogger_statement(action=update)` 修正归类 → 修正成功后 `console_statement_review(action=apply)` 置已处理；若判断建议不成立则 `action=delete` 并说明理由。凡复核暴露出**可泛化的归类规律**，须回写本 #30（及提炼规范）固化为长期判据。看板侧：原「待复核」badge 已移除，改为**只有存在复核记录时才显示「复核」badge**（tooltip 展示建议原文）。
     - 模板见 `assets/博主.md`。
 
@@ -166,7 +166,7 @@
     - **分析内容 → 路由落地**：
         - 涉及买卖动作（买/加/减/卖/清仓）→ **必须**经 `blogger_trade` 落买卖帖言论行 `statement_trade`（见 #31），同时实时抓取价格/市值填入；买卖的价格取值和备注规则见 #31 硬规则；
         - 个股/行业观点（非动作）→ 言论库对应类型表（`statement_view` 观点 / `statement_research` 研究 / `statement_predict` 预测…），分类权威＝`content_type`；
-        - 有框架价值的行业/方法论洞察 → 调 investment-refine 提炼为独立框架条目；
+        - 有框架价值的行业/方法论洞察 → 走提炼环节（references/refine.md） 提炼为独立框架条目；
         - 方法论/心态/体系类 → 按常规提炼流程归入对应分类。
     - **选择性落地**：无借鉴价值的纯调侃/碎碎念不入库，告知用户已跳过。
     - **买卖必录**：只要识别出买卖动作，无论内容是否有其他价值，买卖帖必须落地。
@@ -197,7 +197,7 @@
     - **口径**：「关注」由「在控制台登记」本身隐含，不单设 `following`；`market` / `style_keywords` / `tags` 属内容领域分类，已从博主档案移除（画像是人物档案、非文章条目，不适用 tags/star/delete 等内容型字段）。
     > 沿革：2026-09-08 单轨化（字段入 blogger 表）→ 09-12 画像 md 废弃 → 09-14 存量 49 文件清空（备份 `~/Project/investment-dashboard/backups/blogger_profile_20260914000617/`）→ 2026-09-19 `vault_review.py` 画像分支下线。
 
-37. Emoji 边界（2026-08-09 用户确认；2026-09-03 补言论链路例外）：**emoji 限制只影响 wiki 产物（提炼环节）**——非言论来源（视频转录、长文研究、其他平台）的采集与粗加工必须尽可能保持原文（含 emoji 表情，雪球表情图片转 `[表情名]` 文本占位、Unicode 表情原样保留，禁止删除清洗）；**例外：雪球博主言论采集链路按《博主言论设计》§采集2 产出纯文本**，删除图片、图片链接与表情（含 `[表情名]` 占位，不留占位），详见 investment-coarse-processor 作用域例外；**wiki 产物与落库文本（框架条目、言论/买卖/画像 DB 字段）禁止任何 emoji 表情**——标题、正文、frontmatter 均不得含 emoji 表情字符。`→` 流程箭头、表格 `---` 分隔线、`[原文](URL)` 等非表情符号不受限。
+37. Emoji 边界（2026-08-09 用户确认；2026-09-03 补言论链路例外）：**emoji 限制只影响 wiki 产物（提炼环节）**——非言论来源（视频转录、长文研究、其他平台）的采集与粗加工必须尽可能保持原文（含 emoji 表情，雪球表情图片转 `[表情名]` 文本占位、Unicode 表情原样保留，禁止删除清洗）；**例外：雪球博主言论采集链路按《博主言论设计》§采集2 产出纯文本**，删除图片、图片链接与表情（含 `[表情名]` 占位，不留占位），详见 粗加工环节 作用域例外；**wiki 产物与落库文本（框架条目、言论/买卖/画像 DB 字段）禁止任何 emoji 表情**——标题、正文、frontmatter 均不得含 emoji 表情字符。`→` 流程箭头、表格 `---` 分隔线、`[原文](URL)` 等非表情符号不受限。
 
 38. vault 链接渲染与主题归类规范（2026-09-03 用户提出）：
     - **链接渲染（单一实现）**：DB 记录与看板中凡指向 vault 文件的引用，一律用 Obsidian wikilink `[[路径]]`（可省 `.md`，可用 `[[路径|别名]]`），**不得写裸路径字符串**。看板渲染必须经 `web/app.js` 的 **`tkFiles()` 唯一实现**（先 `[[...]]`，再 `xxx.md` 两种形态统一处理）：命中真实文件 → `.tk-file` 可点击跳 Obsidian；查不到 → `.tk-file-off` 降级纯文本（防跳空，沿用 2026-09-01 黄金配置思路案的用户纠正）。存在性判定优先用按记录 enrich 的 `TK_KNOWN`，列表页回落全局 vault 索引（`window._vaultFiles`）。**禁止另写第二套链接逻辑**（如直接 `esc()` 输出或自造 `<a>`），否则同类文本在不同面板表现不一致。
@@ -234,7 +234,7 @@
     - **两类不入库**：① 带「摘要」标记的帖（内容残缺，故意不存，便于下次重采）② 无 `[原文]` 链接的帖（规则 #35）。
     - **存量**：2026-09-11 用户明确「存量的不用管」——历史 1400+ 帖不回填，从后续新采集开始积累（2026-09-12 已补齐 09-08~09-10 三批，库内 1114 条）。
     - **关联方式**：与 `statement` 通过 `source_url` 天然对应，**不建关联表**（一帖拆多条言论的情况用同一 url 即可查出）。
-    - **建表位置**：MySQL `investment-dashboard.post_history`；权威 DDL 同步在 `investment-framework/references/investment-dashboard.sql`。
+    - **建表位置**：MySQL `investment-dashboard.post_history`；权威 DDL 同步在 `references/investment-dashboard.sql`。
 
 42. 博主言论「九项必有字段」（2026-09-11 用户确认）：**必有＝schema 里必须有这个字段（列），不是必须填内容**。九项：内容时间 `view_date` / 帖子时间 `statement_datetime` / 内容类型 `content_type` / 帖子类型 `form` / 回复 `reply_to` / 信号 `stance`+`signal_text` / 原文链接 `source_url` / 采集时间 `fetched_datetime` / 具象化 `wiki_ref`。
     - **三项可为空（用户明确）**：`reply_to`（无回应对象）、`stance`+`signal_text`（无方向立场）、`wiki_ref`（未沉淀成框架条目）——服务端**不拒写，只返回非阻断 `warnings` 提示**；`predict` 缺方向时提示复核是否应归 `view`。
@@ -265,7 +265,7 @@
     - **实体四表（取代 prediction_subjects；2026-09-15 新增指数）**：`stock`（个股：name/code/market_code/aliases/hk_connect）、`industry`（行业：name/code）、`market_index`（**指数**：如创业板指/沪深300，表名不能叫 `index`——MySQL 保留字）、`market`（市场：code/name，A股/港股/美股/韩股…）。控制台页签直接读这四张表。**行业表只放行业**——宏观/认知/策略/风格类（估值、周期、仓位管理、宏观经济、地缘政治…）不是实体，落 wiki「我的」层；个股名/市场名不得混进行业表（2026-09-12 清理了 27 条此类污染 + 8 条错位）；**行业里的指数类条目（创业板等）归 `market_index`**（2026-09-15 已迁创业板 1 条，code 待补）。另有两张名单/目录表（只读参考数据）：`index_catalog`（指数目录，类别/编制机构）、`industry_sw`（申万行业目录 1/2/3 级）。
     - **关联七张（用户拍板）**：`statement_blogger_rel`（**言论一定挂博主**）、`statement_stock_rel`、`statement_industry_rel`、`statement_market_index_rel`（2026-09-15 新增）、`statement_market_rel`（**言论可以没有个股/行业/指数/市场关联**）、`stock_industry_rel`（**个股一定挂行业，且可多行业**）、`stock_market_rel`（个股↔市场）。原来那张多态表已删除。**跟踪表 `statement_rel` 也已退役（2026-09-12 用户选 A）**：它长期 0 行、看板无读路径（「有写入无读取」的死功能），`console_add_track` 工具一并下架——预测的后续演进由后续言论自身承载（时间线上正文与时间可见）。
     - **不变量（写入即校验，2026-09-12 实测全库 0 违规）**：① 每条言论必有 `statement_blogger_rel`；② 每只个股至少一条 `stock_industry_rel`（服务端 `blogger_trade` / `console_ensure_subject` 支持传 `industryName` 建关联，缺则记缺口待补）；③ 通胀之类宏观概念**不属于市场**，不建实体关联。
-    - **个股别名与提及判定**：见 `investment-refine/references/stock-mention-rules.md`（关键词邻接 + 二元分类特征；别名存 `stock.aliases`，逗号分隔）。
+    - **个股别名与提及判定**：见 `references/stock-mention-rules.md`（关键词邻接 + 二元分类特征；别名存 `stock.aliases`，逗号分隔）。
     - **弃用对象直接删**：确认无用的表/字段**删前导出到 `backups/`，然后 DROP**，不留 `_del` 残表（本批已删 `post_entity_rel`、`prediction_subjects` 及历史的 9 张 `_del` 表）。
     - **注释写法**：表注释只写平实的「XX表 / XX子表」；字段注释直述含义；**码值字段必须写明字典项与 `dict.type`**。
     - **可枚举的值进 `dict`**：方向/状态/内容类型等一律 `dict(type,code,name,sort_order,enabled,remark)`；标签也是 `dict(type='tag')`。`trade_op`（买卖操作）随 op 字段一起废弃（2026-09-12 用户：买卖记录不要操作字段）。
@@ -287,7 +287,7 @@
     - **判定与展示分离**：「这条心得可不可以迁移到别的标的/时间上用」是**提炼时的判断**；页面上**只显示产物**——有产物 → 「已具象化：<框架条目文件>」（可点击本地打开，见 #44 的 wiki_ref），没有产物 → 什么都不显示。
     - **禁止再引入「应该有产物」这类标签字段**：`statement_insight.transferable` 已于同日删除（删前快照 `backups/drop_transferable_20260912/`）。删除理由：它是**空头承诺**——135 条心得里 101 条被标「可迁移」，却**没有一条真有产物**（`wiki_ref` 全空）；而且判据从未进规范，标注不可信。
     - **提炼侧要求**：一条可迁移的方法/纪律/原则，**要么落成框架条目并回填 `wikiRef`，要么就只当经历留在正文**——不要用「标记一下」代替「做出来」。
-    - **审查侧要求**：`investment-review` 看 **`insight` 帖的具象化覆盖率**（当前 4/135）作为「方法论沉淀不足」的信号，人工复核哪些该补条目；不得依赖已删除的标签字段做自动化统计。
+    - **审查侧要求**：`审查环节` 看 **`insight` 帖的具象化覆盖率**（当前 4/135）作为「方法论沉淀不足」的信号，人工复核哪些该补条目；不得依赖已删除的标签字段做自动化统计。
     - **字段语义单一化**：每个字段只表达一种事实（产物路径就是产物路径，状态就是状态，码值就是码值）；不要用「是不是某类东西」的布尔去承载「做过没做过」。
 
 46. 回复内容「原样照抄 + 去包装」——`reply_to` 是引文，不是摘要也不是雪球语法串：
@@ -318,7 +318,7 @@
     - **用户原话**：「在审查按钮前面插入一个待复核按钮，作用是显示你无法处理的需要我复核的帖子，这种帖子在下次审查的时候可以处理，并且内化规则，**让我以后可以不用再审核类似的帖子**」。
     - **三步入队**：① **agent 上报**——提炼/审查中拿不准的一律进队列（`MCP pending_decision add`），不许瞎猜、不许留空：归类边界（predict↔view、trade↔insight）、标的名解析不出、称呼歧义、时间存疑、规则没覆盖的新情况；系统也会自动上报一类（`blogger_statement` 遇到解析不出的标的名时，返回的 warnings 里带「已登记「待决策」#id」）。② **用户裁决**——看板「待决策」页（左侧菜单，在「审查」**前面**）点候选按钮或自由作答 → `status=resolved`。页面默认 tab＝「待处理」＝待你裁决(open)∪待内化(resolved 且 internalized 空)，2026-09-26 用户定义「待处理＝待决策和待内化的所有内容，即待我决策处理的所有内容」。③ **下次内化**——按 kind 分流：提炼类跟下一次提炼（2026-09-15 拍板「已决策的，跟着下一次提炼一起提炼掉，不要跟审核」）；**审查类（`审查裁决`）跟下一次审查首步**（2026-09-27 拍板）——见下条。
     - **上报质量硬要求**：必须带**候选 `options`**（`/` 分隔，让用户点一下就完事）；`question` 一句话能独立看懂；`excerpt` 放原文片段（用户不必去翻原文）；能定位到帖子就给 `statementId` + `sourceUrl`。
-    - **内化是闭环的关键（只答不内化＝违规）**：**提炼时**先取 `status=pending_internalize`（已答复、`internalized` 为空）→ 修数据 → 把答复**落成规则/案例**（四选一或组合）：`framework-rules.md` 新条目/修订（编号 + 用户原话）、`stock.aliases`（`stock_alias add`，称呼类）、`mention_case`（`stock_alias case-add`，误判/漏判案例）、`refine-schema.md` 判定细则 → 调 `pending_decision action=internalize` 把落点写回 `internalized`。**`internalized` 非空＝这条经验已进规则，同类帖子以后不再问用户**——这正是用户要的「以后不用再审核类似的帖子」；只把答复当一次性修正、不写回规则，等于让用户把同一类问题答第二遍。**执行方按 kind 分流（2026-09-27 用户拍板）**：提炼类＝`investment-refine` 第一步「1.1 清待决策队列」；**审查类（`kind=审查裁决`，由审查收尾步上报）＝下轮审查首步闭环执行**——细则在 review-rules.md「复核建议处理」第 5 点与「审查发现上报待决策」，本条不重复。
+    - **内化是闭环的关键（只答不内化＝违规）**：**提炼时**先取 `status=pending_internalize`（已答复、`internalized` 为空）→ 修数据 → 把答复**落成规则/案例**（四选一或组合）：`framework-rules.md` 新条目/修订（编号 + 用户原话）、`stock.aliases`（`stock_alias add`，称呼类）、`mention_case`（`stock_alias case-add`，误判/漏判案例）、`refine-schema.md` 判定细则 → 调 `pending_decision action=internalize` 把落点写回 `internalized`。**`internalized` 非空＝这条经验已进规则，同类帖子以后不再问用户**——这正是用户要的「以后不用再审核类似的帖子」；只把答复当一次性修正、不写回规则，等于让用户把同一类问题答第二遍。**执行方按 kind 分流（2026-09-27 用户拍板）**：提炼类＝`提炼环节` 第一步「1.1 清待决策队列」；**审查类（`kind=审查裁决`，由审查收尾步上报）＝下轮审查首步闭环执行**——细则在 review-rules.md「复核建议处理」第 5 点与「审查发现上报待决策」，本条不重复。
     - **不该上报的**（避免噪声）：规则里已经写明的（先查 `framework-rules.md` / `refine-schema.md` / `stock-mention-rules.md`）、能靠留档/关联表自己查出来的、纯采集缺口且用户已明确「缺口如实报不必补」的。**上报前先按 kind 搜一遍队列**，别重复问同一个问题。
     - **提炼汇报要带结果**：提炼汇报里写明「本次处理待决策 N 条（内化 M 条 / 忽略 K 条）」，用户据此确认闭环走完了。
     - **卡片样式：给「博主 + 原文 + 时间」，不给提炼结果（2026-09-13 用户纠正）**：用户原话「这个待决策设计我觉得设计的不好，**原文都看不到，原文链接也没有**……我的目标是，对于某一个帖子，你无法判断他属于什么内容、或者无法判断是否应该内化的，由我来决策，但是**卡片样式应该要包含博主、包含原文、包含时间，不包含提炼后信息，因为还没提炼**」。待复核是**提炼之前**的决策点，所以：

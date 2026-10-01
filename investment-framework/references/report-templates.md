@@ -1,6 +1,6 @@
 # 审查落库模板（data/review.json · schema）
 
-> 由 investment-review SKILL.md 的 Output Format 引用。**2026-08-16 起审查不再产出 md 报告文件**，改为直落库：审查完成后按本模板规定的结构化字段，`MCP 工具 `review_record`（REST POST /api/review/record 兼容，连接见 investment-framework/references/console-mcp.md）` 写入投资看板本地数据 `data/review.json`（看板唯一数据源）。
+> 由 审查环节 SKILL.md 的 Output Format 引用。**2026-08-16 起审查不再产出 md 报告文件**，改为直落库：审查完成后按本模板规定的结构化字段，`MCP 工具 `review_record`（REST POST /api/review/record 兼容，连接见 references/console-mcp.md）` 写入投资看板本地数据 `data/review.json`（看板唯一数据源）。
 > 历史 md 报告（2026-08-09/14）不迁移、不回退依赖；看板仅在无落库记录时回退解析旧 md 兼容展示。
 
 ---
@@ -79,7 +79,7 @@
 
 ## 四、落库调用规范
 
-1. **端点**：`MCP 工具 `review_record`（REST POST /api/review/record 兼容，连接见 investment-framework/references/console-mcp.md）`，`Content-Type: application/json`
+1. **端点**：`MCP 工具 `review_record`（REST POST /api/review/record 兼容，连接见 references/console-mcp.md）`，`Content-Type: application/json`
 2. **请求体**：上述完整 record 对象
 3. **校验**：服务端校验 `date/title/checks/groups` 必填；失败返回 `{ok:false, error}`，**必须补全后重试**，禁止跳过落库
 4. **幂等**：同 `date` 覆盖写入（自动处理）

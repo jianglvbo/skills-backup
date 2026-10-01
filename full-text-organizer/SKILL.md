@@ -5,7 +5,7 @@ description: >
   去除口语填充词、修正语音识别错误、添加章节标题、口语转书面语，保留原意与论证逻辑。
   触发词：「全文整理」「整理 transcript」「转录稿整理」「口述稿整理」「语音转文字整理」
   「整理录音」「视频文稿整理」「口语转书面」。
-  排除条件：当内容属于雪球帖子采集时交给 post-fetch；当内容属于投资框架提炼时交给 investment-refine。
+  排除条件：当内容属于雪球帖子采集时交给 post-fetch；当内容属于投资框架提炼时交给投资框架 skill（提炼环节）。
 license: MIT
 agent_created: true
 metadata:

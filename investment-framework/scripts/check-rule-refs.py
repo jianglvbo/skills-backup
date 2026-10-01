@@ -20,10 +20,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAMILY = [
-    os.path.dirname(HERE),                       # investment-framework（本体；工作区 .agents/skills 是指向本体的软链）
-    os.path.expanduser('~/.skills-manager/skills/investment-refine'),
-    os.path.expanduser('~/.skills-manager/skills/investment-coarse-processor'),
-    os.path.expanduser('~/.skills-manager/skills/investment-review'),
+    os.path.dirname(HERE),                       # investment-framework（本体，含提炼/审查环节；工作区 .agents/skills 是指向本体的软链）
     os.path.expanduser('~/.skills-manager/skills/xueqiu-spyder'),
     os.path.expanduser('~/.skills-manager/skills/prediction-console'),
 ]
