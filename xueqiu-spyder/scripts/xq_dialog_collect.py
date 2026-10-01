@@ -195,7 +195,7 @@ class Collector:
     @staticmethod
     def _older_than(time_raw, stop_before):
         """time_raw 如 '09-25 13:05· 来自Android' / '2025-05-02 …' / '昨天 …' → True=早于 stop_before"""
-        t = (time_raw or '').replace(PUA, '').trim()
+        t = PUA.sub('', (time_raw or '')).trim()
         base = dt.date.today()
         m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})', t)
         if m:
