@@ -192,6 +192,26 @@ class Collector:
         page.wait_for_timeout(2200)
         return page
 
+    @staticmethod
+    def _older_than(time_raw, stop_before):
+        """time_raw 如 '09-25 13:05· 来自Android' / '2025-05-02 …' / '昨天 …' → True=早于 stop_before"""
+        t = (time_raw or '').replace(PUA, '').trim()
+        base = dt.date.today()
+        m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})', t)
+        if m:
+            d = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        else:
+            m = re.match(r'^(\d{1,2})-(\d{1,2})', t)
+            if m:
+                d = dt.date(base.year, int(m.group(1)), int(m.group(2)))
+            else:
+                return False   # 今天/昨天/相对时间：仍在窗口内
+        try:
+            stop = dt.date.fromisoformat(stop_before)
+        except ValueError:
+            return False
+        return d < stop
+
     def recover(self, err):
         """页签丢失/桥故障恢复：先试 new_page，不行重启桥（换空间）"""
         print(f'  ⚠️ 恢复：{err}', flush=True)
@@ -209,6 +229,50 @@ class Collector:
         page.evaluate(JS_EXPAND, None)
         page.wait_for_timeout(900)
         meta = page.evaluate(JS_ITEM_META, {'uid': self.uid})
+        return self._extract_chain(page, meta)
+
+    # 详情页补采模式（2026-10-01 优化：待决策里有 sourceUrl，直接进详情页点「查看对话」，
+    # 不翻时间线；弹窗评论 id 拼链 404 的教训不适用于此——详情页 URL 本身就是永久链接）
+    def collect_by_url(self, page, url):
+        page.goto(url)
+        page.wait_for_timeout(2200)
+        # 详情页：正文 + 「查看对话」按钮 + 引用卡都在主文档；容器打标记复用弹窗流
+        marked = page.evaluate("""() => {
+          const art = document.querySelector('article') || document.querySelector('.detail__wrap') || document.body;
+          art.setAttribute('data-zc-dlg', '1');
+          const card = art.querySelector('blockquote');
+          const a = [...art.querySelectorAll('a')].find(x =>
+            (x.className || '').toString().includes('timeline__expand__control') && x.offsetWidth > 0);
+          if (a) { a.click(); return { expanded: true }; }
+          return { expanded: false };
+        }""", None)
+        page.wait_for_timeout(1000)
+        meta = page.evaluate("""(arg) => {
+          const art = document.querySelector('[data-zc-dlg]');
+          if (!art) return null;
+          const dlg = art.querySelector('a.dialogue__btn');
+          const card = art.querySelector('blockquote');
+          let root = null;
+          if (card) {
+            const a = [...card.querySelectorAll('a[href]')].find(x => /\\/\\d+\\/\\d+/.test(x.getAttribute('href') || ''));
+            const lines = (card.innerText || '').split('\\n').map(x => x.replace(/[\\uE000-\\uF8FF]/g, '').trim()).filter(Boolean);
+            let author = '', meta = '';
+            if (lines.length && /^@/.test(lines[0])) author = lines[0].replace(/[：:]\\s*$/, '');
+            const mi = lines.findIndex(l => /·\\s*(转发|讨论|赞)/.test(l) && /\\d/.test(l));
+            if (mi >= 0) { meta = lines[mi]; lines.splice(mi, 1); }
+            const body = lines.filter(l => !/^(收起|展开)/.test(l)).join('\\n');
+            root = { url: a ? 'https://xueqiu.com' + a.getAttribute('href').split('#')[0] : null,
+                     author, meta, content: body };
+          }
+          const timeEl = art.querySelector('.time') || art.querySelector('[class*=time]');
+          return { hasDlg: !!(dlg && dlg.offsetWidth),
+                   url: location.href.split('#')[0],
+                   time: timeEl ? timeEl.textContent.replace(/\\s+/g, ' ').trim() : '',
+                   root };
+        }""", {'uid': self.uid})
+        return self._extract_chain(page, meta)
+
+    def _extract_chain(self, page, meta):
         if not meta:
             return None
         if not meta['hasDlg']:
@@ -237,7 +301,7 @@ class Collector:
         return {'trigger': {'url': meta['url'], 'time': meta['time']},
                 'root': meta['root'], 'nodes': nodes, '_modal_close': closed}
 
-    def run(self, pages):
+    def run(self, pages, stop_before=''):
         self.start()
         skip = {}          # idx -> 已重试次数（确定性错误不重试）
         degraded = False   # 有条目因反复失败被跳过 → 退出码 3
@@ -256,6 +320,12 @@ class Collector:
                         if not page.evaluate(JS_MARK, {'i': i}):
                             break
                         quick = page.evaluate(JS_OWN_URL, {'uid': self.uid})
+                        # 时间感知止损：时间线自上而下由新到旧，本帖已早于目标日期 → 后面只会更旧
+                        if stop_before and quick:
+                            if self._older_than(quick, stop_before):
+                                print(f'[time] {quick} 早于 {stop_before}，时间线已滚过目标窗口，止损', flush=True)
+                                self.out['pages'] = pg
+                                return degraded
                         if quick and quick in self.done:
                             i += 1
                             continue
@@ -307,6 +377,7 @@ class Collector:
                     page.wait_for_timeout(2400)
             self.out['pages'] = pages
             self.out['degraded'] = degraded
+            self.out['stopBefore'] = stop_before
         finally:
             self.stop()
         return degraded
@@ -318,10 +389,33 @@ def main():
     ap.add_argument('--pages', type=int, default=3)
     ap.add_argument('--blogger', default='')
     ap.add_argument('--out', default='')
+    ap.add_argument('--urls', default='', help='逗号分隔的回复帖永久链接：逐条进详情页点「查看对话」，不翻时间线（待决策补采用）')
+    ap.add_argument('--stop-before', default='', help='YYYY-MM-DD：时间线翻到该日期之前的帖即停（时间感知，防盲翻）')
     a = ap.parse_args()
 
     c = Collector(a.uid, a.blogger)
-    c.run(a.pages)
+    if a.urls:
+        c.start()
+        try:
+            page = c.bridge.main_page
+            for u in [x.strip() for x in a.urls.split(',') if x.strip()]:
+                if u in c.done:
+                    print(f'[url] 已采过，跳过 {u}', flush=True)
+                    continue
+                rec = c.collect_by_url(page, u)
+                if rec is None or 'orig' in rec:
+                    print(f'[url] {u} 无对话入口或解析失败', flush=True)
+                    continue
+                turl = rec['trigger']['url']
+                if turl and turl not in c.done:
+                    c.out['threads'].append(rec)
+                    c.out['replies'] += 1
+                    c.done.add(turl)
+                    print(f'[url] 串 {len(rec["nodes"])} 节点 · {turl}', flush=True)
+        finally:
+            c.stop()
+    else:
+        c.run(a.pages, stop_before=a.stop_before)
 
     path = a.out or os.path.expanduser(
         f"~/.cache/xueqiu-spyder/out/dialog/雪球对话串-{a.blogger or a.uid}-{dt.date.today():%Y%m%d}.json")
