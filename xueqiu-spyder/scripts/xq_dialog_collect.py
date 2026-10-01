@@ -231,14 +231,54 @@ class Collector:
         meta = page.evaluate(JS_ITEM_META, {'uid': self.uid})
         return self._extract_chain(page, meta)
 
-    # 详情页补采模式（2026-10-01 优化：待决策里有 sourceUrl，直接进详情页点「查看对话」，
-    # 不翻时间线；弹窗评论 id 拼链 404 的教训不适用于此——详情页 URL 本身就是永久链接）
-    def collect_by_url(self, page, url):
-        page.goto(url)
+    # 详情页补采（点击式主路径，2026-10-01 用户定稿：尽量点击跳转，URL 仅兜底防风控）
+    # 主路径：首页搜索框搜关键词 → 结果页点击目标帖（按 status id 匹配锚点）→ 详情页
+    # 兜底：搜索未命中（索引延迟/关键词太泛）才 goto 直达，并在输出里标注 fallback
+    def search_click(self, page, url, keyword):
+        status_id = url.rstrip('/').split('/')[-1]
+        page.goto('https://xueqiu.com')
+        page.wait_for_timeout(1800)
+        ok = page.evaluate("""(kw) => {
+          const inp = document.querySelector('input[placeholder*="搜索"], input[type=search]');
+          if (!inp) return 'no-input';
+          inp.value = kw;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+          inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+          return 'submitted';
+        }""", keyword)
+        if ok != 'submitted':
+            return 'no-input'
+        page.wait_for_timeout(2500)
+        hit = page.evaluate("""(sid) => {
+          const a = [...document.querySelectorAll('a[href*="' + sid + '"]')]
+            .find(x => /xueqiu\.com\/\d+\/\d+/.test(x.href) && x.offsetWidth > 0);
+          if (!a) return null;
+          a.removeAttribute('target');
+          a.scrollIntoView({ block: 'center', behavior: 'instant' });
+          a.click();
+          return a.href;
+        }""", status_id)
         page.wait_for_timeout(2200)
+        return hit or 'no-hit'
+
+    def collect_by_url(self, page, url, keyword='', url_fallback=True):
+        via = 'search-click'
+        if keyword:
+            hit = self.search_click(page, url, keyword)
+            if not hit or page.url.rstrip('/') == 'https://xueqiu.com/':
+                via = 'url-fallback'
+                if not url_fallback:
+                    return {'search_failed': hit}
+                page.goto(url)
+                page.wait_for_timeout(2200)
+            print(f'  [nav] {via} · {url}', flush=True)
+        else:
+            page.goto(url)
+            page.wait_for_timeout(2200)
         # 详情页：正文 + 「查看对话」按钮 + 引用卡都在主文档；容器打标记复用弹窗流
         marked = page.evaluate("""() => {
-          const art = document.querySelector('article') || document.querySelector('.detail__wrap') || document.body;
+          const dlg = document.querySelector('a.dialogue__btn');
+          const art = (dlg && dlg.closest('article')) || document.body;
           art.setAttribute('data-zc-dlg', '1');
           const card = art.querySelector('blockquote');
           const a = [...art.querySelectorAll('a')].find(x =>
@@ -391,6 +431,7 @@ def main():
     ap.add_argument('--out', default='')
     ap.add_argument('--urls', default='', help='逗号分隔的回复帖永久链接：逐条进详情页点「查看对话」，不翻时间线（待决策补采用）')
     ap.add_argument('--stop-before', default='', help='YYYY-MM-DD：时间线翻到该日期之前的帖即停（时间感知，防盲翻）')
+    ap.add_argument('--keywords', default='', help='与 --urls 对齐的搜索关键词（逗号分隔；搜索点击为主路径，URL goto 兜底）')
     a = ap.parse_args()
 
     c = Collector(a.uid, a.blogger)
@@ -398,11 +439,13 @@ def main():
         c.start()
         try:
             page = c.bridge.main_page
-            for u in [x.strip() for x in a.urls.split(',') if x.strip()]:
+            kws = [x.strip() for x in a.keywords.split(',') if x.strip()]
+            for ui, u in enumerate([x.strip() for x in a.urls.split(',') if x.strip()]):
                 if u in c.done:
                     print(f'[url] 已采过，跳过 {u}', flush=True)
                     continue
-                rec = c.collect_by_url(page, u)
+                kw = kws[ui] if ui < len(kws) else ''
+                rec = c.collect_by_url(page, u, keyword=kw)
                 if rec is None or 'orig' in rec:
                     print(f'[url] {u} 无对话入口或解析失败', flush=True)
                     continue
