@@ -128,6 +128,21 @@ JS_ITEM_META = "(arg) => {" + JS_IMG + """
            root };
 }"""
 
+JS_ROOT_ANCHOR = """() => {
+  const a = document.querySelector('a.fake-anchor, a.replay-count');
+  const anchor = a ? (a.getAttribute('href') || '') : '';
+  const m = anchor.match(/^\\/(\\d+)\\/(\\d+)/);
+  const art = document.querySelector('.article__bd');
+  let author = '';
+  const who = document.querySelector('.article__bd__user, .name, .user-name');
+  if (who) author = who.textContent.trim().slice(0, 40);
+  const metaEl = [...document.querySelectorAll('.article__bd + div, .detail__meta, .time')].map(e => e.textContent).join(' ');
+  const meta = (metaEl.match(/\\d{2,4}-\\d{2}-\\d{2}[^·]*·[^·]*讨论[^\\n]*/) || [''])[0].trim();
+  return { rootUrl: m ? ('https://xueqiu.com/' + m[1] + '/' + m[2]) : null,
+           author, meta,
+           content: art ? art.innerText.slice(0, 600) : '' };
+}"""
+
 JS_OPEN_DLG = """() => {
   const t = document.querySelector('[data-zc-dlg]');
   const b = t && t.querySelector('a.dialogue__btn');
@@ -258,93 +273,35 @@ class Collector:
         self.bridge.start()
         self._goto_profile()
 
+    def fix_roots(self):
+        """root 锚定补齐（2026-10-02 串条聚合挂根帖卡的前置）：被回复对象是评论时，
+        时间线引用卡里没有 status 链接 → root 空；按 dialog-flow 定稿打开回复帖
+        永久页取上下文锚点（a.fake-anchor / a.replay-count → 原帖 status id）。"""
+        need = [t for t in self.out['threads'] if not (t.get('root') or {}).get('url')]
+        if not need:
+            return
+        print(f'[root] 补锚定 {len(need)} 条', flush=True)
+        page = self.bridge.main_page
+        for t in need:
+            try:
+                page.goto(t['trigger']['url'], wait_until='domcontentloaded', timeout=20000)
+                page.wait_for_timeout(1600)
+                info = page.evaluate(JS_ROOT_ANCHOR, None)
+                if info and info.get('rootUrl'):
+                    t['root'] = {'url': info['rootUrl'], 'author': info.get('author', ''),
+                                 'meta': info.get('meta', ''), 'content': info.get('content', '')}
+                else:
+                    print(f"[root] 无锚点 {t['trigger']['url']}", flush=True)
+            except BridgeError as e:
+                print(f'[root] 桥错误: {e}', flush=True)
+                self.recover(f'{e}')
+
     def extract_thread(self, page, i):
         if not page.evaluate(JS_MARK, {'i': i}):
             return None
         page.evaluate(JS_EXPAND, None)
         page.wait_for_timeout(900)
         meta = page.evaluate(JS_ITEM_META, {'uid': self.uid})
-        return self._extract_chain(page, meta)
-
-    # 详情页补采（点击式主路径，2026-10-01 用户定稿：尽量点击跳转，URL 仅兜底防风控）
-    # 主路径：首页搜索框搜关键词 → 结果页点击目标帖（按 status id 匹配锚点）→ 详情页
-    # 兜底：搜索未命中（索引延迟/关键词太泛）才 goto 直达，并在输出里标注 fallback
-    def search_click(self, page, url, keyword):
-        status_id = url.rstrip('/').split('/')[-1]
-        page.goto('https://xueqiu.com')
-        page.wait_for_timeout(1800)
-        ok = page.evaluate("""(kw) => {
-          const inp = document.querySelector('input[placeholder*="搜索"], input[type=search]');
-          if (!inp) return 'no-input';
-          inp.value = kw;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-          inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-          return 'submitted';
-        }""", keyword)
-        if ok != 'submitted':
-            return 'no-input'
-        page.wait_for_timeout(2500)
-        hit = page.evaluate("""(sid) => {
-          const a = [...document.querySelectorAll('a[href*="' + sid + '"]')]
-            .find(x => /xueqiu\.com\/\d+\/\d+/.test(x.href) && x.offsetWidth > 0);
-          if (!a) return null;
-          a.removeAttribute('target');
-          a.scrollIntoView({ block: 'center', behavior: 'instant' });
-          a.click();
-          return a.href;
-        }""", status_id)
-        page.wait_for_timeout(2200)
-        return hit or 'no-hit'
-
-    def collect_by_url(self, page, url, keyword='', url_fallback=True):
-        via = 'search-click'
-        if keyword:
-            hit = self.search_click(page, url, keyword)
-            if not hit or page.url.rstrip('/') == 'https://xueqiu.com/':
-                via = 'url-fallback'
-                if not url_fallback:
-                    return {'search_failed': hit}
-                page.goto(url)
-                page.wait_for_timeout(2200)
-            print(f'  [nav] {via} · {url}', flush=True)
-        else:
-            page.goto(url)
-            page.wait_for_timeout(2200)
-        # 详情页：正文 + 「查看对话」按钮 + 引用卡都在主文档；容器打标记复用弹窗流
-        marked = page.evaluate("""() => {
-          const dlg = document.querySelector('a.dialogue__btn');
-          const art = (dlg && dlg.closest('article')) || document.body;
-          art.setAttribute('data-zc-dlg', '1');
-          const card = art.querySelector('blockquote');
-          const a = [...art.querySelectorAll('a')].find(x =>
-            (x.className || '').toString().includes('timeline__expand__control') && x.offsetWidth > 0);
-          if (a) { a.click(); return { expanded: true }; }
-          return { expanded: false };
-        }""", None)
-        page.wait_for_timeout(1000)
-        meta = page.evaluate("""(arg) => {
-          const art = document.querySelector('[data-zc-dlg]');
-          if (!art) return null;
-          const dlg = art.querySelector('a.dialogue__btn');
-          const card = art.querySelector('blockquote');
-          let root = null;
-          if (card) {
-            const a = [...card.querySelectorAll('a[href]')].find(x => /\\/\\d+\\/\\d+/.test(x.getAttribute('href') || ''));
-            const lines = (card.innerText || '').split('\\n').map(x => x.replace(/[\\uE000-\\uF8FF]/g, '').trim()).filter(Boolean);
-            let author = '', meta = '';
-            if (lines.length && /^@/.test(lines[0])) author = lines[0].replace(/[：:]\\s*$/, '');
-            const mi = lines.findIndex(l => /·\\s*(转发|讨论|赞)/.test(l) && /\\d/.test(l));
-            if (mi >= 0) { meta = lines[mi]; lines.splice(mi, 1); }
-            const body = lines.filter(l => !/^(收起|展开)/.test(l)).join('\\n');
-            root = { url: a ? 'https://xueqiu.com' + a.getAttribute('href').split('#')[0] : null,
-                     author, meta, content: body };
-          }
-          const timeEl = art.querySelector('.time') || art.querySelector('[class*=time]');
-          return { hasDlg: !!(dlg && dlg.offsetWidth),
-                   url: location.href.split('#')[0],
-                   time: timeEl ? timeEl.textContent.replace(/\\s+/g, ' ').trim() : '',
-                   root };
-        }""", {'uid': self.uid})
         return self._extract_chain(page, meta)
 
     def _extract_chain(self, page, meta):
@@ -464,36 +421,12 @@ def main():
     ap.add_argument('--pages', type=int, default=3)
     ap.add_argument('--blogger', default='')
     ap.add_argument('--out', default='')
-    ap.add_argument('--urls', default='', help='逗号分隔的回复帖永久链接：逐条进详情页点「查看对话」，不翻时间线（待决策补采用）')
     ap.add_argument('--stop-before', default='', help='YYYY-MM-DD：时间线翻到该日期之前的帖即停（时间感知，防盲翻）')
-    ap.add_argument('--keywords', default='', help='与 --urls 对齐的搜索关键词（逗号分隔；搜索点击为主路径，URL goto 兜底）')
     a = ap.parse_args()
 
     c = Collector(a.uid, a.blogger)
-    if a.urls:
-        c.start()
-        try:
-            page = c.bridge.main_page
-            kws = [x.strip() for x in a.keywords.split(',') if x.strip()]
-            for ui, u in enumerate([x.strip() for x in a.urls.split(',') if x.strip()]):
-                if u in c.done:
-                    print(f'[url] 已采过，跳过 {u}', flush=True)
-                    continue
-                kw = kws[ui] if ui < len(kws) else ''
-                rec = c.collect_by_url(page, u, keyword=kw)
-                if rec is None or 'orig' in rec:
-                    print(f'[url] {u} 无对话入口或解析失败', flush=True)
-                    continue
-                turl = rec['trigger']['url']
-                if turl and turl not in c.done:
-                    c.out['threads'].append(rec)
-                    c.out['replies'] += 1
-                    c.done.add(turl)
-                    print(f'[url] 串 {len(rec["nodes"])} 节点 · {turl}', flush=True)
-        finally:
-            c.stop()
-    else:
-        c.run(a.pages, stop_before=a.stop_before)
+    c.run(a.pages, stop_before=a.stop_before)
+    c.fix_roots()
 
     path = a.out or os.path.expanduser(
         f"~/.cache/xueqiu-spyder/out/dialog/雪球对话串-{a.blogger or a.uid}-{dt.date.today():%Y%m%d}.json")
