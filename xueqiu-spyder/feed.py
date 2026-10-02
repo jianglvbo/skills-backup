@@ -216,7 +216,7 @@ DETAIL_JS = r"""
 # 弹窗那套 JS 只有一份权威源＝scripts/xq_dialog_collect.py，这里 import 常量复用，**不另抄一份**
 # （抄一份＝两边解析迟早漂）。feed 侧只多做一件事：按 href 把卡片重新标记成 data-zc-dlg，
 # 好让采集器的 JS_OPEN_DLG / JS_MODAL_* 原样可用。标记名沿用采集器的，不另起。
-THREAD_BUDGET = 260        # 单轮最多开多少个对话弹窗（≈1.5s/个，防整轮时长失控）
+THREAD_BUDGET = 300        # 单轮最多开多少个对话弹窗（已有串的会被去重跳过，所以这个数是"新串上限"）
 THREAD_PACE = 1.5          # 每个弹窗之间的间隔（开→稳→读→关本身约 3.5s）
 MARK_BY_HREF_JS = r"""
 (href) => {
@@ -247,7 +247,16 @@ def collect_threads(p, rows, logger, budget=THREAD_BUDGET):
     早一步跑就永远判「无入口」。"""
     D = _dlg_mod()
     todo = [r for r in rows if r.get("dlg")]
-    logger.info("对话串：流内有入口 %s 条（预算 %s）", len(todo), budget)
+    # 补采去重：已有串的触发帖不再开窗（一条触发回复＝一行串，重开只是白烧风控暴露）。
+    # 清单拿不到时**不去重**——宁可重开也不能漏串（防漏采铁律优先于省请求）。
+    have = load_threaded_triggers()
+    if have:
+        pre = len(todo)
+        todo = [r for r in todo if ("https://xueqiu.com" + r["href"]).lower() not in have]
+        logger.info("对话串：有入口 %s 条 → 已有串 %s 条跳过、待开 %s 条（预算 %s）",
+                    pre, pre - len(todo), len(todo), budget)
+    else:
+        logger.info("对话串：流内有入口 %s 条（预算 %s；已有串清单不可用，不去重）", len(todo), budget)
     got, guard = 0, 0
     for r in todo:
         if got >= budget:
@@ -415,13 +424,43 @@ def load_tracked():
             pass
         with urllib.request.urlopen(req, timeout=3) as r:
             data = json.loads(r.read().decode("utf-8"))
-        bloggers = data.get("data") if isinstance(data, dict) else data
+        # 响应是 {ok, data:{bloggers:[…]}}——多套一层（2026-10-02 查「过滤不可用」根因：
+        # 原先把 data 这层的 dict 当列表遍历，取到的是字符串键，异常被外层 except 吞成 None，
+        # 于是博主过滤从来没生效过，每轮都在采全流再靠入库侧丢）
+        inner = data.get("data") if isinstance(data, dict) else data
+        bloggers = (inner.get("bloggers") if isinstance(inner, dict) else inner) or []
         m = {}
         for b in bloggers or []:
             xid = str(b.get("xueqiuId") or "").strip()
             if xid:
                 m[xid] = b.get("name")
         return m or None
+    except Exception:
+        return None
+
+
+def _api_get(path):
+    """带 Bearer mcpToken 读看板 API（凭据从仓库 config.json 读，不进命令行）；失败返回 None。"""
+    try:
+        req = urllib.request.Request(DASHBOARD + path)
+        try:
+            with open(os.path.expanduser("~/Project/investment-dashboard/src/config.json")) as f:
+                tok = json.load(f).get("mcpToken", "")
+            if tok:
+                req.add_header("Authorization", "Bearer " + tok)
+        except Exception:
+            pass
+        with urllib.request.urlopen(req, timeout=4) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def load_threaded_triggers():
+    """已有对话串的触发帖 URL 集合（小写归一）。拿不到返回 None＝不去重（照旧全开，宁多不漏）。"""
+    d = _api_get("/api/thread/triggers")
+    try:
+        return {str(u).lower() for u in d["data"]["triggers"]}
     except Exception:
         return None
 
