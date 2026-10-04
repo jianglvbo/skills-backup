@@ -19,7 +19,7 @@
 
 | 层 | 加载时机 | 行业预算 | 本库约定 |
 |:---|:---|:---|:---|
-| 元数据（name+description） | 启动常驻 | ~100 tokens | 精炼、触发词前置 |
+| 元数据（name+description） | 启动常驻 | ~100 tokens | 精炼、领词前置，一个 branch 一个触发条件 |
 | SKILL.md 正文 | 触发时全量 | <500 行 / 5000 tokens | **≤200 行（更严，继续执行）** |
 | references/ · scripts/ · assets/ | 按需 | 无硬限 | 每个文件写清何时加载 |
 

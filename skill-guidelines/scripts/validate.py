@@ -81,9 +81,16 @@ def check_skill(skill_dir, third_party=False):
         else:
             if len(desc) > 1024:
                 fails.append(f'description 超长（{len(desc)} > 1024 字符）')
-            if '触发词' not in desc and 'Triggers on' not in desc:
-                fails.append('description 无「触发词」')
-            if not any(k in desc for k in ('排除', 'Exclusions', '区别于')):
+            # 指针要写明「到达条件」，而不是含某个魔术词。
+            # 旧检查要求字面出现「触发词」，它奖励的正是它想防的事：
+            # 往指针里塞同义词清单＝一个 branch 写好几遍。
+            # 「有没有写明条件」措辞空间太大，机械判会误报，故只作提示不作门禁。
+            if not re.search(r'时使用|时触发|时使|when|use\s+when|只用于|用于|触发词', desc, re.I):
+                notes.append('description 可能未写明到达条件（人工确认何时该取用它）')
+            triggers = re.findall(r'[「“]([^」”]{1,20})[」”]', desc)
+            if len(triggers) >= 4:
+                notes.append(f'description 列了 {len(triggers)} 个触发词，疑似同义重复（一个 branch 写多遍）')
+            if not any(k in desc for k in ('排除', 'Exclusions', '区别于', '不用')):
                 notes.append('description 无「排除条件」（易与相邻 skill 抢路由）')
 
     for sec, pat in SECTIONS.items():
@@ -92,10 +99,15 @@ def check_skill(skill_dir, third_party=False):
 
     m = re.search(r'^#+\s*Default\s+[Ss]tance(.*?)(?=^#\s|\Z)', text, re.S | re.M)
     if m:
-        if '核心原则' not in m.group(1) and 'Core Principles' not in m.group(1):
+        stance = m.group(1)
+        if '核心原则' not in stance and 'Core Principles' not in stance:
             notes.append('Default stance 无「核心原则」小节')
-        if '禁止行为' not in m.group(1) and 'Prohibitions' not in m.group(1):
-            notes.append('Default stance 无「禁止行为」小节')
+        if not any(k in stance for k in ('边界', '禁止行为', 'Boundaries', 'Prohibitions')):
+            notes.append('Default stance 无「边界」小节（旧名「禁止行为」）')
+        # 靠禁令转向会把被禁行为拉进上下文，让它更容易出现。
+        neg = len(re.findall(r'绝不|不要|禁止|不得|勿\b', stance))
+        if neg >= 4:
+            notes.append(f'Default stance 有 {neg} 处否定式表述，逐条试改为正向目标')
 
     m = re.search(r'^#+\s*(自检|[Ss]elf-?[Cc]heck)(.*?)(?=^#\s|\Z)', text, re.S | re.M)
     if m:
