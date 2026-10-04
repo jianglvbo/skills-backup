@@ -19,6 +19,9 @@
 | `XUEQIU_TIMELINE_URL` | v4 端点 | 主 timeline 端点（覆盖用） |
 | `XUEQIU_TIMELINE_URL_FALLBACK` | 旧版端点 | 降级端点（v4 被封时自动切） |
 | `XUEQIU_POSTS_COUNT` | `20` | 每页条数（两端点兼容值） |
+| `XUEQIU_REQUEST_DELAY` | `1.0` | 内层单次请求间隔（秒） |
+| `XUEQIU_PAGE_DELAY_RANGE` | `1.0,1.0` | 翻页间隔随机档 `"min,max"`（秒），只作用于翻页循环；重采/夜批拉长防风控传 `8,15` |
+| `XUEQIU_DETAIL_PACE` / `XUEQIU_DETAIL_BREAK_N` / `XUEQIU_DETAIL_BREAK_S` | `1.2,1.9` / `50` / `45` | 详情页逐帖节流：间隔档 / 每 N 次长歇 / 长歇秒数（≈0.7 req/s 安全线） |
 | ~~`XUEQIU_DEBUG_PORT` / `XUEQIU_DEBUG_HOST` / `XUEQIU_CHROME_PATH`~~ | — | **已删除**（Chrome 通道 2026-09-16 从代码移除） |
 
 ## 退出码约定

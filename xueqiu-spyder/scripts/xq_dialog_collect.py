@@ -56,7 +56,10 @@ JS_OWN_URL = """(arg) => {
   const inCard = new Set([...t.querySelectorAll('blockquote a, [class*=forward] a')]);
   const own = [...main.querySelectorAll('a[href]')].find(a =>
     new RegExp('^/' + arg.uid + '/\\\\d+$').test(a.getAttribute('href') || '') && !inCard.has(a));
-  return own ? 'https://xueqiu.com' + own.getAttribute('href') : null;
+  // 返回 `url\\t时间锚文本`：时间锚供 --stop-before 做时间感知止损（2026-10-05 修复：
+  // 此前把 URL 当时间解析，止损永不触发，--follow 回补点失效只会盲翻满页数）
+  return own ? 'https://xueqiu.com' + own.getAttribute('href') + '\\t'
+    + own.textContent.replace(/\\s+/g, ' ').trim() : null;
 }"""
 
 JS_EXPAND = """() => {
@@ -437,13 +440,14 @@ class Collector:
                         if not page.evaluate(JS_MARK, {'i': i}):
                             break
                         quick = page.evaluate(JS_OWN_URL, {'uid': self.uid})
+                        qurl, _, qtime = (quick or '').partition('\t')
                         # 时间感知止损：时间线自上而下由新到旧，本帖已早于目标日期 → 后面只会更旧
-                        if stop_before and quick:
-                            if self._older_than(quick, stop_before):
-                                print(f'[time] {quick} 早于 {stop_before}，时间线已滚过目标窗口，止损', flush=True)
+                        if stop_before and qtime:
+                            if self._older_than(qtime, stop_before):
+                                print(f'[time] {qurl} 早于 {stop_before}，时间线已滚过目标窗口，止损', flush=True)
                                 self.out['pages'] = pg
                                 return degraded
-                        if quick and quick in self.done:
+                        if qurl and qurl in self.done:
                             i += 1
                             continue
                         rec = self.extract_thread(page, i)

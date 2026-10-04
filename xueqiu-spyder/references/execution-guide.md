@@ -53,6 +53,7 @@ python3 {xueqiu-spyder}/scripts/xq_sync_console.py --apply    # 确认后落地�
 |:---|:---|:---|
 | 日常增量（全部已关注博主，隔 ≤3 天） | **feed** | 一次会话覆盖全部博主，自然浏览形态，风控暴露最小；逐博主 cutoff 记账由**流断点书签**取代 |
 | 首采 / 窗口 >3 天 / 跨周补采 | user | 流回溯受**积压量**限制（实测 2.5 天 ≈ 370 条贴到步数上限；活跃关注 150+ 条/天），不是流本身翻不到 |
+| 重采/补历史窗口（要页面肉眼可见操作，2026-10-05 定稿） | `scripts/xq_profile_collect.py` | 主页滚动+点翻页；crawler user 是页面上下文请求，页面不动不满足口径 |
 | feed 书签未翻到（退出码 3）/ 流缺帖抽查 | user | 宁可重复采，不可漏采 |
 
 **轮转抽查（feed 模式的兜底纪律）**：feed 采集完成后，对本轮**未露面**的看板博主做小比例核对（每轮抽 1/5~1/7，用 `main.py user {xq_id} --from {其 info_cutoff} --max-pages 1` 翻一页）；抽查发现漏帖 → 说明流有渲染缺口，该博主改走 user 模式补齐并报告用户。
@@ -124,6 +125,30 @@ $PY "$SPYDER/main.py" user {xq_id} \
 > **实测依据（2026-09-09）**：连续 17 位 × 10 页 ≈ 172 次请求 / 6.5 分钟（约 26 次/分钟）→ `v4/statuses/user_timeline.json` 被阿里云 WAF 对该 IP 临时封禁（405，页面自身带签名请求亦 405，其他端点正常）。改用 ≤3 页 + 每 10 位暂停后未再触发。经验阈值：timeline 翻页 ~150-180 次 / 详情页导航 ~100-120 次 为危险区。
 
 **端点被封无需人工干预**：spyder 内建自动降级（v4 → 旧版 `/statuses/user_timeline.json`，数据一致），失败一次即自动切换重试，见 `xueqiu-spyder` SKILL。若降级后仍失败，才按 WAF 报错处置（稍后重试 / 人工过验证）。
+
+---
+
+## 重采/深窗口 UI 采集：xq_profile_collect.py（2026-10-05 用户定稿「新方式」）
+
+用户口径：**进博主主页 → 逐条滚动 → 到底点「下一页」**；回复帖点「查看对话」、原帖点进详情页拿全量——
+全程页面操作、ego lite 里肉眼可见（crawler user 的页面上下文请求页面不动，不满足此口径）。
+
+```bash
+XUEQIU_PAGE_DELAY_RANGE="8,15" XUEQIU_EGO_WAKE=0 \
+$PY "$SPYDER/scripts/xq_profile_collect.py" {uid} \
+  --blogger {昵称} --pages 40 --stop-before {YYYY-MM-DD} --out ~/.cache/xueqiu-spyder/recrawl
+```
+
+- **一次翻页两份产物**：`雪球采集-{博主}-{日期}.md`（import-post-history.js 契约）＋
+  `雪球对话串-{博主}-{日期}.json`（import-thread.js 契约，root.full=原帖全量）——重采按 md → json 顺序先后落库。
+- 机制：逐条 `scrollIntoView`（可见滚动）→ 点「展开」→ 抽正文/图/时间/引用卡（图只走「图：」行不进正文，
+  转帖引用卡结构化为「回复内容」块）→ 回复帖开弹窗收链 → 翻页点 `a.pagination__next`；
+  专栏帖与展开失败帖在收尾**点进详情页**补全文+权威时间（间隔吃 `XUEQIU_PAGE_DELAY_RANGE` 与 DETAIL_* 档）。
+- **时间感知止损**：条目时间早于 `--stop-before` 即停（时间线由新到旧）；置顶帖不进扫描。
+  JS_POST_META/时间解析复用 feed 的 `derive_time` 口径，流内相对时间标 `（流内推算）`。
+- 退出码：0=完成；3=degraded（有帖展开失败/原帖没抓到——产物仍可用，缺口交审计列清单）。
+- **重采夜批纪律**：落库后必须审计（帖数对账/抽帖验段落与图/串完整性/窗外误伤），通过才推进游标；
+  对话串采集器同源的 `--stop-before` 失效 bug 已修（时间从时间线锚文本取，不再拿 URL 当时间）。
 
 ---
 

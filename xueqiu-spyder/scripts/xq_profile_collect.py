@@ -74,7 +74,7 @@ JS_POST_META = r"""
     const qtitle = card.querySelector('[class*=title]');
     const qlines = strip(card.innerText || '').split('\n').map(x => x.trim()).filter(Boolean);
     let qauthor = '';
-    if (qlines.length && /^@/.test(qlines[0])) qauthor = qlines[0].replace(/[：:]\s*$/, '');
+    if (qlines.length && /^@/.test(qlines[0])) { qauthor = qlines[0].replace(/[：:]\s*$/, ''); qlines.splice(0, 1); }
     const mi = qlines.findIndex(l => /·\s*(转发|讨论|赞)/.test(l) && /\d/.test(l));
     let qmeta = '';
     if (mi >= 0) { qmeta = (qlines[mi].split('·')[0] || '').trim(); qlines.splice(mi, 1); }
@@ -284,8 +284,10 @@ class ProfileCollector:
                         print('[next] 无下一页，提前收', flush=True)
                         break
                     page.wait_for_timeout(int(xqcfg.page_delay() * 1000))
+        except BridgeError:
+            raise
         finally:
-            self.stop()
+            pass  # 桥留给 main() 收尾再关：后置的原帖/详情补全还要用，提前关会白启一轮
         self._detail_fulls()
         self._fix_roots()
         self._thread_full_roots()
@@ -498,7 +500,10 @@ def main():
     a = ap.parse_args()
     outdir = a.out or os.path.expanduser('~/.cache/xueqiu-spyder/recrawl')
     c = ProfileCollector(a.uid, a.blogger)
-    c.run(a.pages, stop_before=a.stop_before)
+    try:
+        c.run(a.pages, stop_before=a.stop_before)
+    finally:
+        c.stop()
     s = c.summary()
     md_path, n_posts, n_full = emit_md(c, outdir)
     js_path = os.path.join(outdir, f'雪球对话串-{c.blogger or a.uid}-{dt.date.today():%Y%m%d}.json')
