@@ -103,7 +103,6 @@ CLICK_ONE_JS = r"""
 """
 FEED_JS = r"""
 () => {
-  const num = (t) => /^\d+$/.test(t) ? parseInt(t, 10) : 0;
   // 配图：流式卡里图有两种载体——已渲染的 <img src>（带 !800.jpg/!custom.jpg 尺寸档）与被折叠成
   // <a class="co-img-link" href="…jpg">查看图片</a>。读属性即可，**不需要点开**（2026-10-01 实测）。
   // ⚠ 归属只认**本帖自己**：回复/转帖卡会把「被回复帖」的图渲染进同一张卡，整卡无差别扫描就把父帖
@@ -150,8 +149,6 @@ FEED_JS = r"""
     const permA = it.querySelector('a[href].date-and-source');
     const timeA = it.querySelector('.date-and-source');
     if (!permA) continue;
-    const controls = [...it.querySelectorAll('.timeline__item__ft a.timeline__item__control')]
-      .slice(0, 3).map(a => (a.querySelector('span:last-child') || a).innerText.trim());
     const ctext = (content ? content.innerText : '');
     let quoted = null;
     const fwd = it.querySelector('.timeline__item__forward__content');
@@ -188,7 +185,6 @@ FEED_JS = r"""
       // 「查看对话」按钮＝这条回复有整套问答链可开（判据与 xq_dialog_collect 一致：可见才算有入口）。
       // 必须在**正文展开之后**才出现，所以这一位是展开阶段跑完再读一次才准。
       dlg: !!Array.from(it.querySelectorAll('a.dialogue__btn')).some(x => x.offsetWidth),
-      counts: [num(controls[0] || ''), num(controls[1] || ''), num(controls[2] || '')],
       quoted,
       text: ctext.slice(0, 20000),
       imgs: collectImgs(it, content),
@@ -729,10 +725,10 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
         form = "专栏" if r["column"] else ("回复" if is_reply else ("短文" if len(body) < 200 else "长文"))
         if complete == "全文":
             n_full += 1
-        c = r["counts"]
         author = r.get("author") or "Unknown"
+        # 发布行不再带 转发/回复/点赞（2026-10-04 用户定稿：这些计数不采；
+        # post_history 的三列保留为历史存档，新行一律 NULL）
         pub = (f"> 发布：{tm}{tmark}{'（修改于）' if edited else ''} | 形态：{form} | 作者：{author}"
-               f" | 转发 {c[0]} | 回复 {c[1]} | 点赞 {c[2]}"
                f" | {complete}{' | ' + reason if reason else ''}"
                f" | [原文](https://xueqiu.com{r['href']})")
         # 配图：只取本帖正文块里的图（引用卡/被回复块的图归被引帖，见 FEED_JS collectImgs 的 ⚠ 段）。

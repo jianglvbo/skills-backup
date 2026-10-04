@@ -73,7 +73,8 @@ def _fmt_title(opinion):
 
 def generate_user_report(screen_name, user_id, opinions, output_dir=None, outfile=None):
     """生成对齐投资框架粗制品规范的帖子集文件（frontmatter + 三件套 + 发布行）
-    发布行：> 发布：{YYYY年M月D日 HH:MM} | 形态：X | 转发 n | 回复 n | 点赞 n | 全文/摘要 | [原文](url)
+    发布行：> 发布：{YYYY年M月D日 HH:MM} | 形态：X | 全文/摘要 | [原文](url)
+    （2026-10-04 起不带 转发/回复/点赞 计数——用户定稿不采；个股大V观点报告那条表仍按热度取数）
     """
     import re as _re
     from datetime import datetime as _dt
@@ -110,8 +111,8 @@ def generate_user_report(screen_name, user_id, opinions, output_dir=None, outfil
         lines.append(op.text)
         lines.append("")
         lines.append(
-            f"> 发布：{ts_cn} | 形态：{op.form} | 转发 {op.retweet_count} | "
-            f"回复 {op.reply_count} | 点赞 {op.like_count} | {op.completeness} | "
+            # 发布行不带 转发/回复/点赞（2026-10-04 用户定稿：计数不采，post_history 三列留空）
+            f"> 发布：{ts_cn} | 形态：{op.form} | {op.completeness} | "
             f"[原文](https://xueqiu.com/{user_id}/{op.post_id})"
         )
         # 配图元数据行（2026-10-01 第①步）：URL 只走这一行，正文里一律不留图片引用——

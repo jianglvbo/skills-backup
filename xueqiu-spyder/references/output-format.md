@@ -11,9 +11,7 @@
 | text | string | 正文全文（截断帖补全后标记） |
 | created_at | string | 发布时间（YYYY年M月D日 HH:MM） |
 | form_type | string | **帖子形态：回复 / 短文 / 长文**（客观判定：有"回复 @"/引用块 → 回复；正文 <200 字且无引用块 → 短文；≥200 字或含小标题/分段 → 长文；2026-09-06 起落进摘要行，供提炼零解析读取） |
-| retweet_count | int | 转发数 |
-| reply_count | int | 回复数 |
-| like_count | int | 点赞数 |
+| retweet_count / reply_count / like_count | int | **帖子集不再输出这三项**（2026-10-04 用户定稿：转发/回复/点赞 不采；`post_history` 的三个同名列保留当历史存档，新行一律 NULL）。仅 `main.py stock` 的大V观点报告还按 API 的 `reply_count/like_count` 筛人与排序，那条链路不变 |
 | is_pinned | bool | 是否置顶 |
 | completeness | string | 全文 / 摘要 |
 | post_url | string | 帖子原文链接（`https://xueqiu.com/{xq_id}/{post_id}`） |
@@ -27,7 +25,7 @@
 
 {正文全文}
 
-> 发布：{YYYY年M月D日 HH:MM}{时间来源标记} | 形态：{回复|短文|长文|专栏} | 作者：{昵称} | 转发 {n} | 回复 {n} | 点赞 {n} | 全文 | [原文](https://xueqiu.com/{xq_id}/{post_id})
+> 发布：{YYYY年M月D日 HH:MM}{时间来源标记} | 形态：{回复|短文|长文|专栏} | 作者：{昵称} | 全文 | [原文](https://xueqiu.com/{xq_id}/{post_id})
 ```
 
 > 时间来源标记（feed 模式）：详情页验证＝无标记；流内相对时间推算＝`（流内推算）`；「修改于」推算＝`（修改于·推算）`（编辑时间≠首发时间）。user 模式（详情页权威时间）无标记。
