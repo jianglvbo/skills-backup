@@ -114,14 +114,20 @@ JS_ITEM_META = "(arg) => {" + JS_IMG + """
   const card = t.querySelector('blockquote');
   let root = null;
   if (card) {
-    const a = [...card.querySelectorAll('a[href]')].find(x => /\\/\\d+\\/\\d+/.test(x.getAttribute('href') || ''));
+    // 只认雪球状态页链接（相对 /uid/statusid 或绝对 xueqiu.com/uid/statusid）；
+    // 引用卡里的公告 PDF/外链（stockmc.xueqiu.com/…pdf）曾被无锚正则误配，拼出脏 URL
+    const a = [...card.querySelectorAll('a[href]')].find(x => {
+      const h = x.getAttribute('href') || '';
+      return /^\/\d+\/\d+/.test(h) || /^https?:\/\/(www\.)?xueqiu\.com\/\d+\/\d+/.test(h);
+    });
     const lines = (card.innerText || '').split('\\n').map(x => x.replace(/[\\uE000-\\uF8FF]/g, '').trim()).filter(Boolean);
     let author = '', meta = '';
     if (lines.length && /^@/.test(lines[0])) author = lines[0].replace(/[：:]\\s*$/, '');
     const mi = lines.findIndex(l => /·\\s*(转发|讨论|赞)/.test(l) && /\\d/.test(l));
     if (mi >= 0) { meta = (lines[mi].split('·')[0] || '').trim(); lines.splice(mi, 1); }   // 只留发帖时间，计数不采（2026-10-04 用户定稿）
     const body = lines.filter(l => !/^(收起|展开)/.test(l)).join('\\n');
-    root = { url: a ? 'https://xueqiu.com' + a.getAttribute('href').split('#')[0] : null,
+    root = { url: a ? (a.getAttribute('href').startsWith('http') ? a.getAttribute('href').split('#')[0]
+                                                                  : 'https://xueqiu.com' + a.getAttribute('href').split('#')[0]) : null,
              author, meta, content: body,
              imgs: __imgs(card, null) };
   }

@@ -70,7 +70,10 @@ JS_POST_META = r"""
   let quote = null;
   const card = t.querySelector('blockquote');
   if (card) {
-    const qa = [...card.querySelectorAll('a[href]')].find(x => /\/\d+\/\d+/.test(x.getAttribute('href') || ''));
+    const qa = [...card.querySelectorAll('a[href]')].find(x => {
+      const h = x.getAttribute('href') || '';
+      return /^\/\d+\/\d+/.test(h) || /^https?:\/\/(www\.)?xueqiu\.com\/\d+\/\d+/.test(h);
+    });
     const qtitle = card.querySelector('[class*=title]');
     const qlines = strip(card.innerText || '').split('\n').map(x => x.trim()).filter(Boolean);
     let qauthor = '';
@@ -79,7 +82,8 @@ JS_POST_META = r"""
     let qmeta = '';
     if (mi >= 0) { qmeta = (qlines[mi].split('·')[0] || '').trim(); qlines.splice(mi, 1); }
     quote = {
-      url: qa ? 'https://xueqiu.com' + qa.getAttribute('href').split('#')[0] : null,
+      url: qa ? (qa.getAttribute('href').startsWith('http') ? qa.getAttribute('href').split('#')[0]
+                                                            : 'https://xueqiu.com' + qa.getAttribute('href').split('#')[0]) : null,
       author: qauthor, meta: qmeta,
       title: qtitle ? qtitle.textContent.replace(/[\uE000-\uF8FF]/g, '').trim().slice(0, 120) : '',
       lead: qlines.filter(l => !/^(收起|展开)$/.test(l) && l !== (qtitle ? qtitle.textContent.trim() : '\u0000')).join('\n'),
