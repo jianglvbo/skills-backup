@@ -13,7 +13,7 @@
   --apply 实际落地变更：新增 → POST /api/bloggers 登记；取关 → 仅报告（须用户到看板确认后手工删除，涉及目录回收不自动执行）
   --half-year 新博主的「信息截止」基准（默认：半年前今天 17:50:00）
 
-依赖：**ego lite**（已打开且已登录雪球；走 xueqiu-spyder 的 ego 通道）+ 看板服务（127.0.0.1:8698）
+依赖：**ego lite**（已打开且已登录雪球；走 xueqiu-spyder 的 ego 通道）+ 看板后端（默认 `https://www.jianglvbo.site:8699`，`DASH_API` 可覆盖）
 
 2026-09-16 迁移：浏览器层从 browser-act 换成 ego lite（用户口径「以后别用 chrome 了，用 ego lite」）。
 ego lite 不暴露 CDP 端口，所以复用 xueqiu-spyder 的 ego 桥（ego_browser.EgoBridge）：
@@ -27,7 +27,7 @@ from xq_ego import ego_session   # noqa: E402
 
 VAULT = '/Users/jianglb/Library/Mobile Documents/iCloud~md~obsidian/Documents/投资知识库'
 BLOGGER_DIR = os.path.join(VAULT, '博主')
-API = 'http://127.0.0.1:8698'
+API = os.environ.get('DASH_API', 'https://www.jianglvbo.site:8699')  # 后端只在服务器（2026-10-02 本机不留服务）
 
 def _auth():
     """看板登录闸门（2026-09-27）对 loopback 同样生效：脚本必须带 Bearer mcpToken，

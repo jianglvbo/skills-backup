@@ -17,7 +17,7 @@
 3. 若判断建议不成立（与 dict 判据冲突），`console_statement_review(action=delete, statementId)` 并在审查报告中说明理由，不静默丢弃。
 4. **可泛化即固化**：凡某条复核暴露出通用规律，回写 `framework-rules.md #30` 的归类判据（观点/预测/研究…），让下次提炼自动遵循。典型例：`白酒处于底部（公募持仓全面退出为信号）` 属**当下判断 → 观点·看多(bullish)**，非预测（无未来时间窗/可验证目标位）——此判据已固化进 #30「易错判据（观点 vs 预测）」。
 
-5. **执行已裁决的审查条目（2026-09-27 新增，审查首步必做）**：`pending_decision(action=list, kind=审查裁决)` 取已答复未内化项（`pending_internalize`）→ 逐条按用户答复执行修复（改库/改文件/迁移/删除；vault 内容级修改仅限该裁决授权的范围）→ `pending_decision(action=internalize, id, internalized="实际改动落点")` 关闭；执行明细写进审查报告「审查裁决执行」节。判断答复不成立 → `action=dismiss(id, reason)` 并在报告说明，不静默丢弃。
+5. **执行已裁决的审查条目（2026-09-27 新增，审查首步必做）**：`pending_decision(action=list, kind=审查裁决)` 取已答复未内化项（`pending_internalize`）→ 逐条按用户答复执行修复（改库/改文件/迁移/删除；vault 内容级修改仅限该裁决授权的范围）→ `pending_decision(action=internalize, id, internalized="实际改动落点")` 关闭；执行明细写进审查报告「审查裁决执行」节。判断答复不成立 → `action=dismiss(id, reason)` 并在报告说明，不静默丢弃。**改口径类裁决必须全文同步**（2026-10-01 漏网教训）：口径句常同时出现在**加粗小标题/摘要句/正文段**多处，只改正文段会留下标题与边界直接冲突的残句——改完用 grep 反查旧口径词全文归零再 internalize。
 
 > 看板 UI 侧：原「待复核」badge 已移除，仅当存在复核记录时显示「复核」badge（tooltip 见建议原文）。
 

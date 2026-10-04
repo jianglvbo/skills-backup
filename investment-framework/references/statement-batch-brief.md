@@ -5,7 +5,7 @@
 
 ## 0. MCP 连接（curl POST，非内建工具）
 
-- URL `http://127.0.0.1:8698/mcp`，Header `Authorization: Bearer <token>`（token 读 `~/.config/server-ops/credentials.md` 的 MCP_TOKEN）
+- URL `https://www.jianglvbo.site:8699/mcp`，Header `Authorization: Bearer <token>`（token 读 `~/.config/server-ops/credentials.md` 的 MCP_TOKEN）
 - 网络偶发超时 → 重试 3-4 次退避；**禁调研工具文档**（参数见 §4）
 
 ## 1. 六分法（落库 contentType 一律英文码值；汇报用中文名）

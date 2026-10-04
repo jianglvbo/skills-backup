@@ -4,7 +4,7 @@
 
 ## 1. 看板是什么
 
-纯前端 + 零依赖 Node 轻服务，**本地运行**（`~/Project/investment-dashboard`，端口 8698，launchd 托管 com.investment-dashboard）。读本地 iCloud vault（`config.vaultRoot` 指向 Obsidian 库），派生索引与运营记录写**远程共享 MySQL**（`investment-dashboard`，host 见 config.json；方案 A：预测控制台等已迁库，vault 不再存控制台 Markdown）。MCP 端点 `http://127.0.0.1:8698/mcp`（Bearer token 见 `references/console-mcp.md`）。**看板不产生知识，只呈现流水线结果。**
+纯前端 + 零依赖 Node 轻服务，**后端只跑在服务器上**（2026-10-02 起：本机不留任何常驻服务，`~/Project/investment-dashboard` 只是源码与前端工作区）。服务器实例的 `vaultRoot` 是 Mac/iCloud 的**只读快照**（`deploy-vault.sh` 推），派生索引与运营记录写它同机的 MySQL（`investment-dashboard`；方案 A：预测控制台等已迁库，vault 不再存控制台 Markdown）。MCP 端点 `https://www.jianglvbo.site:8699/mcp`（Bearer token 见 `references/console-mcp.md`）。**看板不产生知识，只呈现流水线结果。**
 
 ## 2. 数据契约（流水线写入）
 
@@ -112,11 +112,11 @@
 
 | 项 | 值 |
 |:---|:---|
-| 服务 | launchd `com.investment-dashboard`（`~/Library/LaunchAgents/com.investment-dashboard.plist`，KeepAlive=1，端口 8698） |
+| 服务 | 服务器 systemd `investment-dashboard`（`sudo systemctl {status,restart} investment-dashboard`）。**本机 launchd 三台作业已于 2026-10-02 删除**，plist 归档在 `~/archive/2026-10-02-mac/` |
 | 启动器 | **`~/Project/investment-dashboard/src/scripts/run-server.sh`**（plist 的 ProgramArguments 指向它）——按「WorkBuddy `versions/current` → 任一已装版本 → PATH 里的 node」解析 node 后 exec server.js |
 | 重启 | `launchctl kickstart -k gui/$(id -u)/com.investment-dashboard`；改 plist 后用 `launchctl bootout` + `launchctl bootstrap gui/$(id -u) <plist>` |
 | 日志 | `~/Library/Logs/investment-dashboard.log`（stdout+stderr 合并） |
-| 健康检查 | `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8698/` → 200；`launchctl list \| grep investment-dashboard` → 第二列为退出码（非 0 即异常） |
+| 健康检查 | `curl -s -o /dev/null -w '%{http_code}' https://www.jianglvbo.site:8699/login` → 200（打 `/` 无凭据得 **302 是正常的**，闸门也管静态）；`ssh jianglb@106.55.14.116 "systemctl is-active investment-dashboard"` → active。**本机 `launchctl list \| grep investment-dashboard` 现在只会查不到**——那台作业 2026-10-02 已删 |
 
 > **踩过的坑（2026-09-11）**：plist 原先写死 `~/.workbuddy/binaries/node/versions/22.22.2-2/bin/node`，WorkBuddy 升级把该版本删掉后**服务静默起不来**——`launchctl list` 显示退出码 `78`、端口无监听，但日志里没有任何报错（因为根本没启动到 node）。**排查口诀**：退出码非 0 且日志无新增 → 先验 `ProgramArguments` 里的可执行文件是否存在。现已改为启动器脚本自愈。
 **数据库注释约定（2026-09-11 补齐）**：`investment-dashboard` **每表每字段均带 COMMENT**（约定写在权威文件 `references/investment-dashboard.sql` 文件头）。新增表/字段后跑审计：
@@ -145,8 +145,10 @@ node ~/Project/investment-dashboard/scripts/verify-schema-replay.js # 空库回�
 bash ~/Project/investment-dashboard/scripts/cache-stats.sh                  # 看板侧命中率 + 服务器 Redis 状态 + 隧道
 python3 ~/Project/investment-dashboard/scripts/redis-inspect.py keys        # 缓存里有什么（键/大小/TTL/值预览）
 python3 ~/Project/investment-dashboard/scripts/redis-inspect.py get '<key>' # 单键的值（自动解压+格式化）
-curl -s http://127.0.0.1:8698/api/cache/stats                 # 进程内命中/未命中/键数
-curl -s -X POST http://127.0.0.1:8698/api/cache/clear         # 手动失效（epoch+1）
+T=$(node -pe "require('./src/config.json').mcpToken")   # 凭据从文件读，别敲进命令行
+H="Authorization: Bearer $T"                                # 闸门对 loopback 同样生效：不带必 401
+curl -s -H "$H" https://www.jianglvbo.site:8699/api/cache/stats   # 进程内命中/未命中/键数
+curl -s -X POST -H "$H" https://www.jianglvbo.site:8699/api/cache/clear   # 手动失效（epoch+1）
 ```
 
 > Redis 装在服务器 `/home/jianglb/redis`（systemd `redis-investment`），看板**直连 `106.55.14.116:6379`**
@@ -162,7 +164,7 @@ curl -s -X POST http://127.0.0.1:8698/api/cache/clear         # 手动失效（e
 
 ## 9. 编排者看板联动清单（自 SKILL.md 下沉）
 
-流水线结果写入本地运行的投资看板（`http://127.0.0.1:8698`，端口 8698，launchd 托管 com.investment-dashboard；读本地 iCloud vault、连远程 MySQL；连接与 token 见 `references/console-mcp.md`），看板不产生知识、只呈现结果：
+流水线结果写入投资看板（后端只有服务器上那一套：MCP `https://www.jianglvbo.site:8699/mcp`，连它同机的 MySQL，页面读 vault 快照；连接与 token 见 `references/console-mcp.md`），看板不产生知识、只呈现结果：
 
 - **提炼** → 产物照常落各自存储（言论六表 / wiki 条目，各自落库动作不变）；提炼步骤落库与 `refine_trace`/`refine_review` 已下线（2026-09-26 用户拍板，framework-rules #54），提炼记录页不再存在
 - **审查** → `MCP review_record`（review 第四步已实现）→ 审查模块（2026-08-16 起不再产出 md 审查报告）

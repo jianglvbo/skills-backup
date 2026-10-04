@@ -66,7 +66,7 @@ python3 "$SPYDER/scripts/xq_sync_console.py" --apply    # 确认后落地
 
 | 场景 | 模式 |
 |:---|:---|
-| 日常增量（全部已关注博主，隔 ≤3 天） | **feed** |
+| 日常增量（全部已关注博主，隔 ≤3 天） | **feed**（**自带配图与对话串**，2026-10-02 用户定稿：每轮采集都含这两样，落库时帖子走 import-post-history.js、对话串 JSON 走 import-thread.js，两者都做完才算采集完成） |
 | 首采 / 深窗口（>3 天）/ 跨周补采 / 书签未翻到 | user |
 | **新博主首采**（半年回溯 + 热门 5 页，2026-09-28 用户定） | user `--hot-pages 5`（先走 profile 档案落库） |
 | feed 完成后的缺帖抽查 | user（轮转抽 1/5~1/7 未露面博主翻一页核对） |
@@ -111,6 +111,7 @@ node ~/Project/investment-dashboard/src/scripts/import-post-history.js --rm "<�
 ```
 
 - 摘要帖与无链接帖按设计不入库；产物是临时文件，**不进 vault**（`~/.cache/xueqiu-spyder/out`）
+- **对话串 JSON 同步落库（2026-10-02 用户定稿，每轮必做）**：feed 会为流内回复帖自动采链（`[对话串] N 位博主、M 条链 → …-对话串-<博主>.json`），逐个文件 `node ~/Project/investment-dashboard/src/scripts/import-thread.js <json>`——只落帖子不落串＝采集没做完
 - 保留期清理：`node ~/Project/investment-dashboard/src/scripts/purge-post-history.js --dry`（180 天滚动窗口）
 
 ### 第八步：断点与 cutoff 回写

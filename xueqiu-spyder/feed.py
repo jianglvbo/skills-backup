@@ -38,7 +38,7 @@ BREAK_N = 3
 URL_BUDGET = 50            # 单次采集例外详情页主动预算（防 WAF 连击；超出即停、余下标摘要）
 MAX_SCROLL = 120           # 滚动步数硬上限（含点「加载更多」，≈1000 条），超出按「书签未翻到」处理
 STATE_PATH = os.path.expanduser("~/.cache/xueqiu-spyder/feed-state.json")
-DASHBOARD = "http://127.0.0.1:8698"
+DASHBOARD = os.environ.get("DASH_API", "https://www.jianglvbo.site:8699")  # 后端只在服务器（2026-10-02 本机不留服务）
 
 # ── 注入页面的 JS（均已实测）─────────────────────────────────────────
 CLICK_TAB_JS = r"""
@@ -422,7 +422,7 @@ def load_tracked():
                 req.add_header("Authorization", "Bearer " + tok)
         except Exception:
             pass
-        with urllib.request.urlopen(req, timeout=3) as r:
+        with urllib.request.urlopen(req, timeout=15) as r:  # 公网档：本机 4ms → 跨公网 0.35~2s，3s 会静默降级
             data = json.loads(r.read().decode("utf-8"))
         # 响应是 {ok, data:{bloggers:[…]}}——多套一层（2026-10-02 查「过滤不可用」根因：
         # 原先把 data 这层的 dict 当列表遍历，取到的是字符串键，异常被外层 except 吞成 None，
@@ -450,7 +450,7 @@ def _api_get(path):
                 req.add_header("Authorization", "Bearer " + tok)
         except Exception:
             pass
-        with urllib.request.urlopen(req, timeout=4) as r:
+        with urllib.request.urlopen(req, timeout=15) as r:
             return json.loads(r.read().decode("utf-8"))
     except Exception:
         return None
@@ -712,7 +712,9 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
                 qtext = re.sub(r"\s*\n\s*", "", clean_quote(q.get("lead") or "")).strip()
                 head = f"> 回复内容·原帖：{qauthor}：{qtext}" if qtext else f"> 回复内容·原帖：{qauthor}"
                 block = [head, f"> 被引原文：https://xueqiu.com{q['url']}"]
-            if block:
+            # 追加前查重（2026-10-03）：存量发现同一条 post_text 里引用块出现两遍
+            # （对话串采集/import 路径已写过引用 → feed 重采再拼一遍），有头就不追加
+            if block and "> 回复内容·" not in body:
                 body = (body + "\n\n" + "\n".join(block)).strip()
         # 空正文＝纯图片帖（控制字剥离后无文本）→ 按「摘要」处理（import 按设计不入库，
         # 提炼本就会丢零信息量帖；不标全文防误导，2026-09-26 实测 #242）

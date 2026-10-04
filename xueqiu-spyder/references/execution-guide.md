@@ -34,7 +34,7 @@ python3 {xueqiu-spyder}/scripts/xq_sync_console.py            # dry-run（默认
 python3 {xueqiu-spyder}/scripts/xq_sync_console.py --apply    # 确认后落地：新增登记；取关须看板手工删
 ```
 
-脚本输出（依赖 **ego lite 已打开且已登录雪球** + 看板服务 127.0.0.1:8698；脚本内部走 `xq_ego.py`）：
+脚本输出（依赖 **ego lite 已打开且已登录雪球** + 看板后端可达：默认打 `https://www.jianglvbo.site:8699`，可用环境变量 `DASH_API` 覆盖；凭据从仓库 `src/config.json` 的 `mcpToken` 读，脚本内部走 `xq_ego.py`）：
 1. **新增**（关注中但看板未登记）→ 向用户报告，`--apply` 后走 `POST /api/bloggers` 登记（编号递增，雪球ID填入，平台=雪球，「信息截止」=半年前今天 17:50:00 ISO）
 2. **取关**（看板登记但已不关注，且平台=雪球）→ 向用户报告，**须用户到看板手工删除**（涉及目录回收，脚本不自动执行，保留画像文件夹与 wiki 条目）
 3. **ID 不一致**（看板 ID 与关注列表不符）→ 报告，人工核对

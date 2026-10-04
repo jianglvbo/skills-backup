@@ -63,8 +63,19 @@ SCOPE = ["博主", "其他", "宏观"]
 def load_blogger_console():
     names = set()
     try:
-        import json as _json, urllib.request
-        with urllib.request.urlopen("http://127.0.0.1:8698/api/bloggers/live", timeout=10) as r:
+        import json as _json, urllib.request, os as _os
+        # 2026-10-02 修：这里从来没带 Bearer，闸门对 loopback 同样生效 → 恒 401 → 整段校验静默跳过
+        # （framework-rules #12 的博主层登记校验因此长期空跑）。后端现只在服务器，凭据同仓库 config.json 读。
+        req = urllib.request.Request(
+            _os.environ.get("DASH_API", "https://www.jianglvbo.site:8699") + "/api/bloggers/live")
+        try:
+            with open(_os.path.expanduser("~/Project/investment-dashboard/src/config.json")) as f:
+                tok = _json.load(f).get("mcpToken", "")
+            if tok:
+                req.add_header("Authorization", "Bearer " + tok)
+        except Exception:
+            pass
+        with urllib.request.urlopen(req, timeout=15) as r:
             data = _json.load(r)
         for b in data["data"]["bloggers"]:
             # 2026-09-14：**已删除的博主不算「已登记」**——他们走回收流程（制品会挪到「其他」层、

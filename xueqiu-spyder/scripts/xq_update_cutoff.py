@@ -44,7 +44,7 @@ def _auth():
         return {}
 
 try:
-    req = urllib.request.Request('http://127.0.0.1:8698/api/bloggers/update',
+    req = urllib.request.Request(os.environ.get('DASH_API', 'https://www.jianglvbo.site:8699') + '/api/bloggers/update',
         data=json.dumps({'name': nickname, 'infoCutoff': new_cutoff}).encode(),
         headers={'Content-Type': 'application/json', **_auth()}, method='POST')
     with urllib.request.urlopen(req, timeout=15) as resp:

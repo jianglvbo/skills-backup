@@ -23,7 +23,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ego_browser import BridgeError, EgoBridge  # noqa: E402
 
 PUA = re.compile(r'[\uE000-\uF8FF]')
-CLEAN = lambda s: PUA.sub('', (s or '')).strip()
+# 尾部 UI 伪影（2026-10-02 存量实修复 250 处后的防线）：评论图片展开钮「查看图片」、
+# 对话链锚点「查看对话」随 innerText 黏在文本尾部，正则只剥尾部防误伤正文
+_TAIL_ARTIFACT = re.compile(r'(?:\s*(?:查看图片|查看对话|查看原图))+\s*$')
+CLEAN = lambda s: _TAIL_ARTIFACT.sub('', PUA.sub('', (s or ''))).strip()
 
 # ── 页内脚本（全部走 evaluate；点击=el.click() 走 JS handler，符合「点击不裸调」口径）──
 
@@ -143,6 +146,24 @@ JS_ROOT_ANCHOR = """() => {
            content: art ? art.innerText.slice(0, 600) : '' };
 }"""
 
+# 原帖页全量抓取（2026-10-03 卡片重构，用户拍板「原帖无论谁发都采」）：
+#   goto root_url 后取 .article__bd 完整正文（保留段落，不截断）+ 时间·形态 + 图片。
+#   与 root_content 脏写事故的区别：本脚本 goto 的是**原帖页**（上一次错在回复帖永久页
+#   把回复正文当原帖抓——语义已由 goto 目标保证）。
+JS_ROOT_FULL = "() => {" + JS_IMG + r"""
+  const art = document.querySelector('.article__bd');
+  if (!art) return null;
+  const who = document.querySelector('.article__bd__user, .name, .user-name');
+  const author = who ? who.textContent.trim().slice(0, 40) : '';
+  const tEl = document.querySelector('.article__author time, .article__author a.edit-time');
+  const time = tEl ? ((tEl.getAttribute('datetime') || tEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40)) : '';
+  const titleEl = document.querySelector('.article__bd__title, h1.title');
+  const title = titleEl ? titleEl.textContent.trim().slice(0, 120) : '';
+  return { author, time, title, form: title ? '专栏' : '短文',
+           text: art.innerText.replace(/[\uE000-\uF8FF]/g, '').trim(),
+           imgs: __imgs(art, art) };
+}"""
+
 JS_OPEN_DLG = """() => {
   const t = document.querySelector('[data-zc-dlg]');
   const b = t && t.querySelector('a.dialogue__btn');
@@ -175,6 +196,21 @@ JS_NEXT_PAGE = """() => {
   n.scrollIntoView({ block: 'center', behavior: 'instant' });
   n.click();
   return true;
+}"""
+
+# 关注列表枚举（2026-10-03 关注提炼，用户指定入口=雪球关注列表）：
+#   首页左栏「关注 N」→ /center/#/friends；列表项=.profiles__user（a.avatar[href=/uid]）
+JS_FOLLOW_LIST = """() => {
+  const out = [];
+  for (const c of document.querySelectorAll('.profiles__user')) {
+    const a = c.querySelector('a.avatar');
+    const href = a ? (a.getAttribute('href') || '') : '';
+    const m = href.match(/^\\/(\\d+)$/);
+    if (!m) continue;
+    const lines = (c.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+    out.push({ uid: m[1], name: (lines[0] || '').slice(0, 30) });
+  }
+  return out;
 }"""
 
 JS_NODES = "() => {" + JS_IMG + """
@@ -287,14 +323,63 @@ class Collector:
                 page.goto(t['trigger']['url'], wait_until='domcontentloaded', timeout=20000)
                 page.wait_for_timeout(1600)
                 info = page.evaluate(JS_ROOT_ANCHOR, None)
+                # ⚠ 只锚 URL 不抓正文：回复帖永久页的 .article__bd 是回复帖正文（文不对题），
+                # 2026-10-02 实测写过脏 root_content；原帖正文快照需在 root_url 页面抓，另做
                 if info and info.get('rootUrl'):
-                    t['root'] = {'url': info['rootUrl'], 'author': info.get('author', ''),
-                                 'meta': info.get('meta', ''), 'content': info.get('content', '')}
+                    t['root'] = {'url': info['rootUrl']}
                 else:
                     print(f"[root] 无锚点 {t['trigger']['url']}", flush=True)
             except BridgeError as e:
                 print(f'[root] 桥错误: {e}', flush=True)
                 self.recover(f'{e}')
+
+    def collect_full_roots(self):
+        """原帖全量抓取（2026-10-03 卡片重构）：对每条有 root.url 的串 goto 原帖页，
+        抓完整正文（保留段落）+时间·形态+图片 → root.full；落库侧写 post_history
+        （post_kind_code='origin'，无论原帖作者是不是追踪博主）并回填 root_ph_id。
+        ⚠ 与 fix_roots 的「只锚 URL」不矛盾：那里在**回复帖页**锚定，这里在**原帖页**抓正文。"""
+        need = []
+        seen = set()
+        for t in self.out['threads']:
+            r = (t.get('root') or {})
+            u = r.get('url')
+            if u and not r.get('full') and u not in seen:
+                seen.add(u)
+                need.append(t)
+        if not need:
+            return
+        print(f'[full-root] 原帖全量抓取 {len(need)} 条（去重后）', flush=True)
+        page = self.bridge.main_page
+        for t in need:
+            ru = t['root']['url']
+            info = None
+            for attempt in (1, 2):   # 桥断→恢复→重试一次
+                try:
+                    page = self.bridge.main_page
+                    page.goto(ru, wait_until='domcontentloaded', timeout=20000)
+                    page.wait_for_timeout(1800)
+                    info = page.evaluate(JS_ROOT_FULL, None)
+                    break
+                except BridgeError as e:
+                    print(f'[full-root] 桥错误: {e}', flush=True)
+                    if attempt == 1:
+                        self.recover(f'{e}')
+                    else:
+                        break
+                except Exception as e2:
+                    print(f'  [full] evaluate 失败 {ru}: {type(e2).__name__} {str(e2).splitlines()[0][:120]}', flush=True)
+                    break
+            if info and info.get('text'):
+                full = {'text': info['text'], 'time': info['time'],
+                        'form': info['form'], 'title': info.get('title') or '',
+                        'imgs': info.get('imgs') or []}
+                # 同根兄弟串共享 full（seen 去重只抓一次，落库按 url_hash 幂等同源）
+                for t2 in self.out['threads']:
+                    if (t2.get('root') or {}).get('url') == ru:
+                        t2['root']['full'] = full
+                print(f"  [full] {ru[-12:]} {len(info['text'])} 字 · 图{len(full['imgs'])} · time={full['time'][:16]}", flush=True)
+            elif info is not None:
+                print(f'  [full] 无正文容器 {ru}', flush=True)
 
     def extract_thread(self, page, i):
         if not page.evaluate(JS_MARK, {'i': i}):
@@ -415,18 +500,81 @@ class Collector:
         return degraded
 
 
+# 关注采集（2026-10-03 关注提炼，用户指定入口=雪球关注列表逐博主）：
+#   枚举 /center/#/friends → 每位博主跑现有链路（时间线→对话链→root 锚定→原帖全量）；
+#   回补点=cutoffs[uid]（JSON 文件 {uid: YYYY-MM-DD}，由调用方从 post_history 最早已采日期生成）
+#   或 --stop-before 统一兜底；每位博主独立产物 JSON（import-thread.js 按博主消费）。
+def follow_mode(args):
+    import json as _json
+    cutoffs = {}
+    if args.cutoffs and os.path.exists(args.cutoffs):
+        cutoffs = _json.load(open(args.cutoffs, encoding='utf-8'))
+    bridge = EgoBridge()
+    bridge.start()
+    try:
+        page = bridge.main_page
+        page.goto('https://xueqiu.com', wait_until='domcontentloaded', timeout=25000)
+        page.wait_for_timeout(2400)
+        entered = page.evaluate("""() => {
+          const a = document.querySelector("a[href='/center/#/friends']");
+          if (!a) return false;
+          a.click();
+          return true;
+        }""", None)
+        if not entered:
+            page.goto('https://xueqiu.com/center/#/friends', wait_until='domcontentloaded', timeout=25000)
+        page.wait_for_timeout(3200)
+        users = page.evaluate(JS_FOLLOW_LIST, None)
+        print(f'[follow] 关注列表 {len(users)} 人', flush=True)
+    finally:
+        bridge.stop()
+    if not users:
+        print('[follow] 关注列表枚举为空（登录态或 DOM 变化）', flush=True)
+        sys.exit(3)
+    outs = []
+    for u in users:
+        cutoff = cutoffs.get(u['uid']) or args.stop_before
+        path = args.out or os.path.expanduser(
+            f"~/.cache/xueqiu-spyder/out/dialog/follow-{u['name'] or u['uid']}-{dt.date.today():%Y%m%d}.json")
+        print(f'[follow] → {u["name"]}({u["uid"]}) 回补点={cutoff or "无"}', flush=True)
+        c = Collector(u['uid'], u['name'])
+        degraded = c.run(args.pages, stop_before=cutoff)
+        c.fix_roots()
+        if args.full_root:
+            c.collect_full_roots()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            _json.dump(c.out, f, ensure_ascii=False, indent=1)
+        outs.append({'blogger': u['name'], 'uid': u['uid'], 'threads': len(c.out['threads']),
+                     'json': path, 'degraded': bool(c.out.get('degraded')) or bool(degraded)})
+        print(f"[follow] ✓ {u['name']} threads={len(c.out['threads'])} → {path}", flush=True)
+    print('FOLLOW-SUMMARY ' + _json.dumps(outs, ensure_ascii=False), flush=True)
+    if any(o['degraded'] for o in outs):
+        sys.exit(3)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('uid')
+    ap.add_argument('uid', nargs='?', default='', help='博主 uid（--follow 时可省略）')
     ap.add_argument('--pages', type=int, default=3)
     ap.add_argument('--blogger', default='')
     ap.add_argument('--out', default='')
     ap.add_argument('--stop-before', default='', help='YYYY-MM-DD：时间线翻到该日期之前的帖即停（时间感知，防盲翻）')
+    ap.add_argument('--full-root', action='store_true', help='原帖全量抓取：goto 原帖页抓完整正文+图片（root.full，落库侧写 origin 留档）')
+    ap.add_argument('--follow', action='store_true', help='关注采集：从雪球关注列表逐博主跑到各自回补点')
+    ap.add_argument('--cutoffs', default='', help='JSON 文件 {uid: YYYY-MM-DD}：每博主的回补点（--follow 用）')
     a = ap.parse_args()
+    if a.follow:
+        follow_mode(a)
+        return
+    if not a.uid:
+        ap.error('需要 uid（或 --follow）')
 
     c = Collector(a.uid, a.blogger)
     c.run(a.pages, stop_before=a.stop_before)
     c.fix_roots()
+    if a.full_root:
+        c.collect_full_roots()
 
     path = a.out or os.path.expanduser(
         f"~/.cache/xueqiu-spyder/out/dialog/雪球对话串-{a.blogger or a.uid}-{dt.date.today():%Y%m%d}.json")

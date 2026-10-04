@@ -22,7 +22,7 @@ import sys
 import time
 import urllib.request
 
-API = "http://127.0.0.1:8698"
+API = os.environ.get("DASH_API", "https://www.jianglvbo.site:8699")  # 后端只在服务器（2026-10-02 本机不留服务）
 # 工具层即本 skill 目录（2026-09-26 编排并入 xueqiu-spyder，本脚本就在 skill 内）；
 # 保留按序探活兜底，防止 symlink 断链时静默用失效路径（2026-09-24：首项失效已踩过）
 _SPYDER_CANDS = [

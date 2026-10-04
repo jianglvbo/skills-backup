@@ -39,9 +39,11 @@
 
 - **采集器 `scripts/xq_dialog_collect.py`**（本 skill 内，ego 通道，前置＝ego lite 开着且已登录雪球）：
   - 时间线模式（缺省）：`--blogger <名> --pages N`，翻页止于 `--stop-before <时间>`（时间感知止损，避免旧帖盲翻）
+  - **原帖全量抓取 `--full-root`（2026-10-03 卡片重构）**：对每条串 goto **原帖页**（root_url）抓完整正文（保留段落、不截断）+时间（`.article__author time`）+形态+图片 → `root.full`；落库侧写 post_history `post_kind_code='origin'` 行并回填 `xq_thread.root_ph_id`（同根兄弟串共享同 id）。与 root_content 脏写事故不矛盾：那里错在回复帖页抓正文，这里 goto 的就是原帖页
+  - **关注采集 `--follow`（2026-10-03 关注提炼）**：从雪球关注列表（首页左栏「关注 N」→ /center/#/friends，`.profiles__user`）逐博主跑完整链路；回补点=`--cutoffs` JSON（{uid: YYYY-MM-DD}，由 post_history 最早已采日期生成）或 `--stop-before` 兜底；每位博主独立产物 JSON。**分工（用户定稿）：关注流为主、旧 feed 流备用（首页提炼）**
   - **URL 直达补采已删除（2026-10-02 用户定稿）**：`--urls`/`--keywords` 与搜索点击→详情页那条补采通路整体移除，采集器不再有「给一个 URL 跳进去取」的入口
   - 韧性：错误分类（代码性错误不重启桥）、单条目重试上限 2 次跳过、翻页空转止损；带病完成 `degraded` exit 3（≠失败，产物仍可用）
-- **落库 `src/scripts/import-thread.js`**（仓库侧）：采集 JSON → 四表幂等导入（post_history 只补缺、追踪博主正文反查回连不双写）；入库校验过才算落库成功
+- **落库 `src/scripts/import-thread.js`**（仓库侧）：采集 JSON → 四表幂等导入（post_history 只补缺、追踪博主正文反查回连不双写）；`root.full` → post_history **origin 行**（blogger_id=NULL 不建博主档案、refine_status=1 不进提炼增量）+ `root_ph_id` 回填；入库校验过才算落库成功
 - 老帖判据：先看回复帖时间，超出时间线回溯窗口（≈2.5 天）**就不补采**——裸 URL 直达易触风控，该通路已按定稿移除，别拿翻页去硬追旧帖
 
 ## 落库口径（用户定稿 2026-09-30）

@@ -22,7 +22,8 @@ REMOTE
 else
   ssh -o ConnectTimeout=10 "$USER@$HOST" bash -s <<'REMOTE'
 echo "== 服务状态 =="
-for s in nginx qa mysql redis-investment; do
+# investment-dashboard 2026-10-02 起是看板后端**唯一**实例，必须查（旧版这里漏了它，只查已退役的 fitness-console）
+for s in nginx qa mysql redis-investment investment-dashboard; do
   printf "%-22s %s\n" "$s" "$(sudo systemctl is-active $s)"
 done
 echo "== HTTP/HTTPS =="

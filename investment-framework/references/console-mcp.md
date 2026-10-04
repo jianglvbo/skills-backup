@@ -7,13 +7,13 @@
 | 项 | 值 |
 |---|---|
 | 类型 | MCP **HTTP**（Streamable HTTP，JSON-RPC 2.0） |
-| 端点 | `http://127.0.0.1:8698/mcp` |
+| 端点 | `https://www.jianglvbo.site:8699/mcp` |
 | 鉴权 | Header `Authorization: Bearer <token>`（token 由服务器 owner 提供） |
 | 请求 | `POST /mcp`，`Content-Type: application/json`，body = JSON-RPC 消息 |
 
 ## 前提
 
-- **看板本地运行**：`investment-dashboard` 服务在本机（端口 8698，launchd: `com.investment-dashboard`），读本地 iCloud vault；**MySQL 仍在远程服务器** `106.55.14.116:3306`（`investment-dashboard`）
+- **看板后端只在服务器**（2026-10-02 用户定稿「mac 只留前端」）：systemd `investment-dashboard` 跑 `106.55.14.116`，`vaultRoot` 是 Mac/iCloud 的**单向快照**（`deploy-vault.sh` 推），MySQL 同机 `106.55.14.116:3306`。**本机已无 node 常驻、无 launchd 作业**，`127.0.0.1:8698` 那个端点不复存在；agent 写文件走本机文件系统（Obsidian 库），不经看板 API
 - 数据源：Obsidian vault 派生 MySQL（`investment-dashboard` 库）——**vault 为绝对基准**，MySQL 为派生数据
 - 本地 config.json 含 `mcpToken`（与服务端鉴权一致）
 
@@ -27,7 +27,7 @@
 | 标签 | `list_tags` |
 | 言论追踪 | `blogger_statement`（六分法 `contentType` 落库：research/predict/view/insight/chat，trade 走 `blogger_trade`）、`blogger_trade`（买卖）、`console_statement_review`（言论卡复核建议闭环）、`statement_read`（待读/已读）、`statement_star`（星标） |
 | 原文库 | `post_history`（采集落点 + 提炼前原文：check/get/upsert/stats/mark） |
-| 实体与别名 | `stock_alias`（别名/主营词）、`stock_former_name`（曾用名）、`stock_watch`（自选/备注）、`console_ensure_subject`（建主题，行业/指数过标准表门禁）、`industry_sw_list`（申万标准表）、`index_catalog_list`（指数目录）、`industry_follow`（关注行业） |
+| 实体与别名 | `stock_alias`（别名/主营词）、`stock_former_name`（曾用名）、`stock_watch`（自选/备注）、`console_ensure_subject`（建主题，行业过行业表门禁/指数过目录门禁）、`industry_sw_list`（行业表·wind 行业树）、`index_catalog_list`（指数目录）、`industry_follow`（关注行业） |
 | 预测控制台 | `console_list_subjects`、`console_get_subject`、`console_add_prediction`、`console_update_status`、`console_stats`（方向统计查询/重算） |
 | 待决策 | `pending_decision`（agent 上报 → 用户裁决 → 内化闭环） |
 | 审查落库 | `review_record`（结构化审查）。已下线：`refine_record`（2026-09-14）、提炼链路 `refine_trace`/`refine_review`（2026-09-26 随步骤落库下线删除，framework-rules #54） |
@@ -53,17 +53,17 @@
 # initialize
 curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  http://127.0.0.1:8698/mcp
+  https://www.jianglvbo.site:8699/mcp
 
 # tools/list
 curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-  http://127.0.0.1:8698/mcp
+  https://www.jianglvbo.site:8699/mcp
 
 # tools/call（例：overview）
 curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"overview","arguments":{}}}' \
-  http://127.0.0.1:8698/mcp
+  https://www.jianglvbo.site:8699/mcp
 ```
 
 ## 接入配置（各 agent 的 MCP 客户端）
@@ -72,7 +72,7 @@ curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/js
 mcpServers:
   investment-dashboard:
     type: http
-    url: http://127.0.0.1:8698/mcp
+    url: https://www.jianglvbo.site:8699/mcp
     headers:
       Authorization: Bearer <token>
 ```
