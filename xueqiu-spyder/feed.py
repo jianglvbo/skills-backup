@@ -173,7 +173,7 @@ FEED_JS = r"""
         // 被引帖自己的图：归「串的被讨论帖快照」（root.imgs），不归本帖——所以这一路**不跳** forward 子树
         imgs: collectImgs(fwd, null, false),
         time: fm[1] || '',
-        counts: [parseInt(fm[2] || 0, 10), parseInt(fm[3] || 0, 10), parseInt(fm[4] || 0, 10)],
+        // 计数（转发/讨论/赞）不采（2026-10-04 用户定稿）：上面那条正则只用来定位尾注行、取时间
         lead: lines.filter(l => l !== footLine && l !== qAuthor && l !== (titleA ? titleA.innerText.trim() : '\u0000'))
                    .join('\n').slice(0, 1200),
       };
@@ -693,10 +693,11 @@ def run_feed(tab="follow", limit=N_TARGET_DEFAULT, since=None, output_dir=None,
         q = r.get("quoted")
         if q and q.get("url") and not d and not own.startswith("回复@"):
             qauthor = q.get("author") or "被引作者"
-            c = q.get("counts") or [0, 0, 0]
-            meta_parts = ([q.get("time")] if q.get("time") else []) + \
-                [f"转发 {c[0]}", f"讨论 {c[1]}", f"赞 {c[2]}"]
-            meta = " · ".join(p for p in meta_parts if p)
+            # 卡片尾注只留发帖时间（2026-10-04 用户定稿：转发/讨论/赞 不采不显，看板那行黑字
+            # 也一并去掉）。流内相对时间按采集瞬间推成绝对时间，与主帖同一套 derive_time 口径；
+            # 推不动的（已是绝对串）原样留，绝不回填计数段。
+            qdt, _qed = derive_time(q.get("time") or "", anchor_ms)
+            meta = qdt.strftime("%Y-%m-%d %H:%M") if qdt else (q.get("time") or "").strip()
             block = None
             if q.get("isColumn") and q.get("title"):
                 head = f"> 回复内容·专栏：{qauthor}《{q['title']}》"
