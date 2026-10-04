@@ -116,7 +116,7 @@ JS_ITEM_META = "(arg) => {" + JS_IMG + """
     let author = '', meta = '';
     if (lines.length && /^@/.test(lines[0])) author = lines[0].replace(/[：:]\\s*$/, '');
     const mi = lines.findIndex(l => /·\\s*(转发|讨论|赞)/.test(l) && /\\d/.test(l));
-    if (mi >= 0) { meta = lines[mi]; lines.splice(mi, 1); }
+    if (mi >= 0) { meta = (lines[mi].split('·')[0] || '').trim(); lines.splice(mi, 1); }   // 只留发帖时间，计数不采（2026-10-04 用户定稿）
     const body = lines.filter(l => !/^(收起|展开)/.test(l)).join('\\n');
     root = { url: a ? 'https://xueqiu.com' + a.getAttribute('href').split('#')[0] : null,
              author, meta, content: body,
