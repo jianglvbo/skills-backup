@@ -165,7 +165,21 @@ JS_ROOT_FULL = "() => {" + JS_IMG + r"""
   const who = document.querySelector('.article__bd__user, .name, .user-name');
   const author = who ? who.textContent.trim().slice(0, 40) : '';
   const tEl = document.querySelector('.article__author time, .article__author a.edit-time');
-  const time = tEl ? ((tEl.getAttribute('datetime') || tEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40)) : '';
+  let time = '';
+  if (tEl) {
+    const raw = (tEl.getAttribute('datetime') || tEl.textContent || '').trim();
+    /* datetime 属性是 UTC ISO（2026-10-05 实测坑：直取落库整体 −8h）——转北京时间再出 */
+    const m = raw.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?(?:\.\d+)?(Z|\+00:00)?$/);
+    if (m) {
+      const d = new Date(raw.replace(' ', 'T') + (m[3] || '+08:00'));
+      if (!isNaN(d)) {
+        const b = new Date(d.getTime() + (m[3] ? 8 * 3600e3 : 0));
+        const p = n => String(n).padStart(2, '0');
+        time = b.getFullYear() + '-' + p(b.getMonth() + 1) + '-' + p(b.getDate()) + ' ' + p(b.getHours()) + ':' + p(b.getMinutes());
+      }
+    }
+    if (!time) time = raw.replace(/\s+/g, ' ').slice(0, 40);
+  }
   const titleEl = document.querySelector('.article__bd__title, h1.title');
   const title = titleEl ? titleEl.textContent.trim().slice(0, 120) : '';
   return { author, time, title, form: title ? '专栏' : '短文',

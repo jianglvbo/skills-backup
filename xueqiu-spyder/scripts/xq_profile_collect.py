@@ -431,9 +431,13 @@ def md_body(p):
         complete, reason = '摘要', '纯图片帖（无文本正文）'
     tm, tmark, edited = '', '（流内推算）', False
     if full and full.get('time'):
-        m = re.search(r'(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})', full['time'])
+        m = re.search(r'(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})', full['time'])
         if m:
-            tm = f'{m.group(1)}年{m.group(2)}月{m.group(3)}日 {m.group(4)}'
+            y, mo, d, hh, mm = (int(m.group(i)) for i in range(1, 6))
+            tdt2 = dt.datetime(y, mo, d, hh, mm)
+            if 'T' in full['time']:   # datetime 属性 UTC 直漏（兜底，JS_ROOT_FULL 已在源头转北京时间）
+                tdt2 += dt.timedelta(hours=8)
+            tm = f'{tdt2.year}年{tdt2.month:02d}月{tdt2.day:02d}日 {tdt2.strftime("%H:%M")}'
             tmark = ''
     if not tm:
         tdt, edited = parse_abs_time(p.get('timeLabel') or '')
