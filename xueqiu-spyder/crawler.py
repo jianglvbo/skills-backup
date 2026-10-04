@@ -568,7 +568,7 @@ class XueqiuCrawler:
 
             # 在同一页面分页获取帖子
             for page_num in range(1, max_pages + 1):
-                time.sleep(config.REQUEST_DELAY)
+                time.sleep(config.page_delay())
                 result = self._fetch_timeline_page(
                     user_page, user_id, page_num)
                 if not result.get("ok") and self._degrade_timeline():
@@ -633,7 +633,7 @@ class XueqiuCrawler:
                 timeout=15000,
             )
             for page_num in range(1, pages + 1):
-                time.sleep(config.REQUEST_DELAY)
+                time.sleep(config.page_delay())
                 result = self._fetch_timeline_page(user_page, user_id, page_num, type_code=9)
                 if not result.get("ok"):
                     time.sleep(5)

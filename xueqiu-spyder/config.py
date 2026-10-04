@@ -1,4 +1,5 @@
 import os
+import random
 
 # API endpoints
 SEARCH_STATUS_URL = "https://xueqiu.com/query/v1/symbol/search/status.json"
@@ -22,8 +23,21 @@ POSTS_PER_PAGE = 50
 USER_POSTS_COUNT = int(os.environ.get("XUEQIU_POSTS_COUNT", "20"))
 
 # Rate limiting
-REQUEST_DELAY = 1.0
+REQUEST_DELAY = float(os.environ.get("XUEQIU_REQUEST_DELAY", "1.0"))
 MAX_RETRIES = 3
+
+# 翻页间隔（user 模式逐博主主页时间线 / 热门 tab）：XUEQIU_PAGE_DELAY_RANGE="min,max"
+# 随机档，拉长防风控（缺省 1.0,1.0＝沿用 REQUEST_DELAY 的旧行为）。
+# 只作用于翻页循环——内层每次请求仍按 REQUEST_DELAY，避免间隔叠乘把整轮拖垮。
+_pg = os.environ.get("XUEQIU_PAGE_DELAY_RANGE", "1.0,1.0").split(",")
+PAGE_DELAY_RANGE = (float(_pg[0].strip()),
+                   float(_pg[1].strip()) if len(_pg) > 1 else float(_pg[0].strip()))
+
+
+def page_delay():
+    """下一页前的间隔（秒），在 PAGE_DELAY_RANGE 档内随机取值。"""
+    lo, hi = PAGE_DELAY_RANGE
+    return random.uniform(lo, max(lo, hi))
 
 # 详情页逐帖补全的节流（2026-10-01 对齐 references/execution-guide.md「单帖接口限流」硬约束：
 # 安全速率 sleep ≥1.2s + 每 50 次停 45s ≈0.7 req/s；实测 1.1 req/s 连约 200 次即 405）。
