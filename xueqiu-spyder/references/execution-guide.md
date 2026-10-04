@@ -3,8 +3,7 @@
 > 本文件承载 xueqiu-spyder Workflow 的完整执行细节（2026-09-26 起本 skill = 原 post-fetch 编排 + 原抓取工具层合并；
 > 旧引用「post-fetch/references/execution-guide.md」一律指向本文件）。SKILL.md 仅保留步骤摘要骨架，细节以本文件为准。
 > 权威规则：`framework-rules.md` #12（博主补登/移除例外）、#29（帖子集例外流程）、#35（原文链接必填）。
-> 2026-09-16 收口：**全部浏览器动作统一走 ego lite**（采集走本 skill 的桥；同步/摘要补全走 `scripts/xq_ego.py`）；
-> browser-act 与 Chrome 通道都已从代码删除，不会再起任何别的浏览器。
+> 浏览器动作统一走 ego lite（采集走本 skill 的桥；同步/摘要补全走 `scripts/xq_ego.py`），通道纪律见 SKILL.md。
 
 ---
 
@@ -95,7 +94,7 @@ $PY "$SPYDER/main.py" user {xq_id} \
   --output "{输出目录}"
 ```
 
-- `{xueqiu-spyder 目录}`：**位置会迁，引用前先 `ls` 探活**。历史：`~/.agents/skills/xueqiu-spyder/`（2026-09-23 失效）→ `~/.zcode/skills/xueqiu-spyder/`（symlink → `~/.skills-manager/skills/`）／项目内 `.agents/skills/xueqiu-spyder/`；`~/.workbuddy/...` 是历史镜像，勿用。**硬编码路径已三次失效**（09-21 / 09-23 / 09-24 各踩一次），本轮 `run_fetch_batch.py` 的候选列表还留着失效项
+- `{xueqiu-spyder 目录}`：**位置会迁，引用前先 `ls` 探活**（现状 `~/.skills-manager/skills/xueqiu-spyder`，项目内 `.agents/skills/xueqiu-spyder/` 是工作区软链层；`~/.workbuddy/...` 是历史镜像勿用）
 
 - `{info_cutoff}` 取看板 `blogger.info_cutoff_datetime`（ISO `YYYY-MM-DDTHH:mm:ss`）；新增博主默认半年前 17:50:00
 
@@ -105,10 +104,8 @@ $PY "$SPYDER/main.py" user {xq_id} \
 - 输出文件命名与 vault 路径由本层控制（spyder `--outfile/--output`）
 
 **环境检查**（调用前）：
-- venv 依赖：`$PY -c "import requests"`（playwright 已于 2026-09-16 移除）
-- **ego lite 通道（默认，2026-09-15 起）**：确认 ego lite 已打开且已登录雪球；`SPYDER/ego_browser.py` 的自检打印当前页 URL/标题即可
-- **无需任何 CDP 预检**：Chrome 通道（含 `XUEQIU_DEBUG_PORT` 等）已于 2026-09-16 从工具层整段删除，采集只走 ego lite。
-- 登录态：用户页标题含昵称 = 已登录
+- venv 依赖：`$PY -c "import requests"`
+- **ego lite 通道**：已打开且已登录雪球（用户页标题含昵称=已登录）；浏览器动作全部走 ego，无任何 CDP/裸调预检
 
 **翻页数与节流（2026-09-09 实测固化，硬约束）**：
 
