@@ -127,7 +127,7 @@ $PY "$SPYDER/main.py" user {xq_id} \
 
 ## 重采/深窗口 UI 采集：xq_profile_collect.py（2026-10-05 用户定稿「新方式」）
 
-用户口径：**进博主主页 → 逐条滚动 → 到底点「下一页」**；回复帖点「查看对话」、原帖点进详情页拿全量——
+用户口径：**进博主主页 → 逐条滚动 → 到底点「下一页」**；回复帖点「查看对话」、例外帖**点开新标签**拿详情页全量——
 全程页面操作、ego lite 里肉眼可见（crawler user 的页面上下文请求页面不动，不满足此口径）。
 
 ```bash
@@ -168,10 +168,24 @@ $PY "$SPYDER/scripts/xq_profile_collect.py" {uid} \
 - **`--blogger {昵称}` 是必需的**（不是只用于文件名）：入站走「关注列表按显示名点击」，
   列表里的 href 常是自定义域名（实测 `/investinginchina`、`/forcode`），**按 uid 匹配 href 会认不出来**；
   点进去才 302 到 `/u/<uid>`，落地后再校验 uid，对不上就退出（不静默回落 goto，防止采错人）。
+- **回归自证（改完输入链路必跑这三条，2026-10-05 全绿基线）**：串行跑，别并发——同一个 ego 会抢任务空间。
+
+  ```bash
+  python3 scripts/xq_click_probe.py --name <博主> --uid <uid> --pages 2 --trail 1   # 10 步真点击
+  python3 scripts/xq_profile_collect.py <uid> --blogger <名> --pages 2 --out <目录>  # 全链
+  python3 scripts/xq_dialog_collect.py <uid> --blogger <名> --pages 1 --full-root --out <目录>
+  ```
+
+  判据：探针 `ok=10 FAIL=0`；profile `posts=N(全文 N/摘要 0)` 且**退出码不是 3**（3=degraded）；
+  dialog `threads>0`。三者都**不许出现**「卡住 / 找不到锚点 / Invalid or unexpected token」。
+  页数取最小就够——验的是代码路径不是历史窗口深度（跨度取决于博主发帖密度）。
+- **插/改 JS 常量后先过语法再跑**：`node --check` 一遍全部 `JS_*`（漏了 `r` 前缀时 Python 会把 `\n`
+  吃成真换行，桥只回一句 `Invalid or unexpected token`，很难定位）。
 - 实测量级（**旧 goto 形态**的 metalslime 首跑，作对照基线）：40 页 ≈ 800 帖 / 全程 ≈ 2.2h
   （页间 8~15s + 约半数回复帖开弹窗 + ~14% 帖子转详情页补全 + 原帖全量 185 次 goto）；
   期间风控有 2 段冷却窗口（连续「未取到全文/无正文容器」后自愈），被拦帖按设计标摘要留给下次。
-  **新形态还没跑过整场**，只有 2 页烟测：`posts=38 全文 38/摘要 0`、原帖 3/3、0 卡住；
+  **新形态目前只到「2 页回归全绿」**（10-05 三条回归：探针 10/10、profile `posts=38 全文 38/摘要 0`
+  退出码 0、dialog `threads=2` 原帖 2/2），**还没跑过 40 页整场**；
   整场时长会因每次真点击 +0.5s 而上升，首次全量跑要盯着点。
 - 退出码：0=完成；3=degraded（有帖展开失败/原帖没抓到——产物仍可用，缺口交审计列清单）。
 - **重采夜批纪律**：落库后必须审计（帖数对账/抽帖验段落与图/串完整性/窗外误伤），通过才推进游标；
