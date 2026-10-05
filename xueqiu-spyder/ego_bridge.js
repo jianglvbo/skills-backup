@@ -27,6 +27,12 @@
  *   {"id":10,"cmd":"cookies"}                       // 读该会话 Cookie 串（给 requests 复用同一登录态）
  *   {"id":11,"cmd":"handoff","waitMs":900000}       // 把任务空间交给用户（过滑块），等用户交还后回执
  *
+ *   真输入命令（2026-10-05 去 goto 化新增；走 CDP Input 域，事件 isTrusted=true）：
+ *   {"id":12,"cmd":"click","page":"p2","selector":"a[href='/center/#/friends']","stripTarget":true,"settleMs":2000}
+ *   {"id":13,"cmd":"click","page":"p2","text":"展开","scope":".timeline__item","nth":0}
+ *   {"id":14,"cmd":"wheel","page":"p2","dy":600,"waitForMs":400}
+ *   {"id":15,"cmd":"back","page":"p2"}              // 走历史栈；回执 {from,to,moved,index,depth,targetUrl}
+ *
  *   **页签策略（2026-09-16 用户口径：随用随关）**：
  *   ① 页面确实开在 ego 里且可见（用户要盯风控），但**不抢焦点**；
  *   ② **工作页一进一出**：临时页用完立刻真关（`close` 直接 `page.close()`），
@@ -137,6 +143,69 @@ function forgetAndClose(page) {
   try { page.close(); } catch (e) { /* 已关或连接已断，忽略 */ }
 }
 
+/* ── 真输入的两个底座（2026-10-05 去 goto 化）───────────────────────────────────
+   为什么不用 evaluate 里的 el.click()：那是 **JS 合成事件**（isTrusted=false，
+   没有 mousemove / hover / pointerdown 序列），拿它替 goto 只是换一种假动作。
+   为什么不用 page.click(selector)：ego 的 Page 不是 Playwright Page
+   （实测没有 locator / goBack，click 的 options 还要过 validatePublicApiOptions 严格校验），
+   而 CDP `Input.dispatchMouseEvent` 实测直接可用（10-05 pageApi probe 回执 {}），
+   自己发事件才能控制「先悬停、再分段移动过去」的真人轨迹。 */
+async function locateForClick(page, q) {
+  // 找元素 + 滚到视口中间 + 报中心点坐标（CDP 输入用的就是视口 CSS px）
+  return await page.evaluate((a) => {
+    const norm = s => (s || "").replace(/[\s　]+/g, " ").trim();
+    let list = [];
+    if (a.selector) {
+      // within：先按 nth 选中「行」（如 .profiles__user），再在行内找子元素。
+      // 不这么做的后果实测过：行索引与全页 a.avatar 索引不对齐 → 点到别人头上。
+      let scope = document;
+      if (a.within) {
+        const rows = [...document.querySelectorAll(a.within)];
+        const row = rows[a.nth || 0];
+        if (!row) return { ok: false, total: 0, reason: "within 没有第 " + a.nth + " 行（共 " + rows.length + " 行）" };
+        scope = row;
+      }
+      list = [...scope.querySelectorAll(a.selector)];
+    } else {
+      const root = a.scope ? (document.querySelector(a.scope) || document) : document;
+      const want = norm(a.text);
+      list = [...root.querySelectorAll("a,button,span,div,li")]
+        .map(el => ({ el, t: norm(el.innerText || el.textContent) }))
+        .filter(o => a.exact ? o.t === want : o.t.includes(want))
+        .sort((x, y) => x.t.length - y.t.length)      // 取文案最短的那个，避免命中包住它的大容器
+        .map(o => o.el);
+    }
+    const el = list.filter(n => n.offsetWidth || n.offsetHeight)[a.childNth || 0];   // 隐藏的先剔掉（display:none 的点了没反应）
+    if (!el) return { ok: false, total: list.length };
+    if (a.stripTarget) el.removeAttribute("target");  // 带 target=_blank 的点了会开新标签，撞 ego 8 页上限
+    el.scrollIntoView({ block: "center", behavior: "instant" });
+    const r = el.getBoundingClientRect();
+    return { ok: true, total: list.length, tag: el.tagName, text: norm(el.innerText).slice(0, 30),
+             x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, q);
+}
+
+async function cdpClick(page, x, y, opts) {
+  // 每次 page.cdp() 都是一个公网级往返（实测单趟数百毫秒），所以**轨迹点数就是成本**：
+  // trail=1 只发一次 mouseMoved（最省），trail=3 走三段位移更像真人。
+  const holdMs = Number((opts && opts.holdMs) || 40);
+  const trail = Math.max(1, Number((opts && opts.trail) || 3));
+  const px = Math.round(x), py = Math.round(y);
+  const t0 = Date.now();
+  for (let i = 0; i < trail; i++) {
+    const f = (i + 1) / trail;
+    await page.cdp("Input.dispatchMouseEvent", {
+      type: "mouseMoved", x: Math.round(px - 26 + 26 * f), y: Math.round(py - 20 + 20 * f),
+    });
+  }
+  const movedMs = Date.now() - t0;
+  const t1 = Date.now();
+  await page.cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: px, y: py, button: "left", clickCount: 1, buttons: 1 });
+  await page.waitForTimeout(holdMs);
+  await page.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: px, y: py, button: "left", clickCount: 1, buttons: 0 });
+  return { moves: trail, movedMs, pressMs: Date.now() - t1 };
+}
+
 async function handle(req) {
   const id = req && req.id;
   try {
@@ -168,6 +237,65 @@ async function handle(req) {
         await page.waitForLoadState("domcontentloaded");
         return { id, ok: true, result: { url: await page.url() } };
       }
+      /* ── 真输入命令（2026-10-05 去 goto 化，底座见上方 locateForClick / cdpClick）──
+         默认驱动**工作页**（与 screenshot 同口径：正在被驱动的那张，不是 p1）。 */
+      case "click": {
+        // selector 与 text 二选一：text 给「展开 / 查看对话 / 下一页」这类没稳定 class 的控件。
+        // ⚠ 雪球的「展开」尾部带空格，所以 text 匹配走**包含 + 归一化空白**，别求全等。
+        const page = pageOf(req.page || (workPage ? workPage.label : "p1"));
+        if (!req.selector && !req.text) return { id, ok: false, error: "click 需要 selector 或 text" };
+        const t0 = Date.now();
+        const loc = await locateForClick(page, {
+          selector: req.selector || null, text: req.text || null, scope: req.scope || null,
+          within: req.within || null, nth: Number(req.nth || 0), childNth: Number(req.childNth || 0),
+          exact: !!req.exact, stripTarget: !!req.stripTarget,
+        });
+        const locateMs = Date.now() - t0;
+        if (!loc.ok) {
+          return { id, ok: false,
+                   error: "click 找不到：" + (req.selector ? req.selector + (req.within ? " ∈ " + req.within + "[" + req.nth + "]" : "")
+                                                          : ("文案「" + req.text + "」")) +
+                          "（候选 " + loc.total + " 个" + (loc.reason ? "，" + loc.reason : "") + "）" };
+        }
+        const clk = await cdpClick(page, loc.x, loc.y, { holdMs: req.holdMs, trail: req.trail });
+        if (req.settleMs) await page.waitForTimeout(Number(req.settleMs));
+        // 回报每段耗时：一次真点击的净成本几乎全是 CDP 往返数，采集器估时按这个来
+        return { id, ok: true,
+                 result: { at: [Math.round(loc.x), Math.round(loc.y)], tag: loc.tag,
+                           text: loc.text, candidates: loc.total,
+                           ms: Object.assign({ locate: locateMs }, clk), url: await page.url() } };
+      }
+      case "wheel": {
+        // 真滚轮：JS 的 scrollIntoView 是瞬移、不产生 wheel 事件，
+        // 懒挂载节奏和真人差很远（也是采集器「逐条滚动」现在的形态）。
+        const page = pageOf(req.page || (workPage ? workPage.label : "p1"));
+        if (req.x != null && req.y != null) await page.mouse.move(Number(req.x), Number(req.y));
+        const dy = Number(req.dy || 0);
+        await page.mouse.wheel(Number(req.dx || 0), dy);
+        if (req.waitForMs) await page.waitForTimeout(Number(req.waitForMs));
+        return { id, ok: true, result: { dy: dy, url: await page.url() } };
+      }
+      case "back": {
+        // 真返回：走浏览器历史栈（等价于点左上角那个箭头），不是 evaluate('history.back()')。
+        // 顺带回报栈深，采集器据此判断「回到哪了」。
+        const page = pageOf(req.page || (workPage ? workPage.label : "p1"));
+        const from = await page.url();
+        const hist = await page.cdp("Page.getNavigationHistory", {});
+        const i = hist.currentIndex;
+        if (i <= 0) {
+          return { id, ok: false, error: "历史栈到头了（currentIndex=" + i + "，深 " + hist.entries.length + "），没有可返回的页" };
+        }
+        const target = hist.entries[i - 1];
+        await page.cdp("Page.navigateToHistoryEntry", { entryId: target.id });
+        try { await page.waitForLoadState("domcontentloaded"); } catch (e) { /* 同文档/已就绪 */ }
+        if (req.settleMs) await page.waitForTimeout(Number(req.settleMs));
+        const to = await page.url();
+        const after = await page.cdp("Page.getNavigationHistory", {});
+        return { id, ok: true,
+                 result: { from: from, to: to, moved: from !== to,
+                           index: after.currentIndex, depth: after.entries.length,
+                           targetUrl: target.url } };
+      }
       case "evaluate": {
         const page = pageOf(req.page);
         const raw = String(req.fn || "").trim().replace(/;\s*$/, "");
@@ -184,6 +312,49 @@ async function handle(req) {
       }
       case "url": {
         return { id, ok: true, result: await pageOf(req.page).url() };
+      }
+      case "pageApi": {
+        // 调试用（2026-10-05 加）：ego 的 page 对象**不是** Playwright Page
+        // （实测没有 locator / goBack，click 的 options 走 validatePublicApiOptions 严格校验，
+        //  cdp 有方法白名单）。写真输入命令前先跑它拿现状，别照 Playwright 文档猜。
+        const page = pageOf(req.page || (workPage ? workPage.label : "p1"));
+        const out = { ctor: (page.constructor && page.constructor.name) || "?", fns: [], props: [], probe: {} };
+        const names = new Set();
+        let o = page;
+        while (o && o !== Object.prototype) {
+          for (const k of Object.getOwnPropertyNames(o)) names.add(k);
+          o = Object.getPrototypeOf(o);
+        }
+        for (const k of names) {
+          try {
+            if (typeof page[k] === "function") out.fns.push(k);
+            else if (page[k] != null) out.props.push(k + ":" + typeof page[k]);
+          } catch (e) { out.props.push(k + ":<throws>"); }   // getter 会抛的也记下来
+        }
+        out.fns.sort(); out.props.sort();
+        if (req.probe) {
+          const t = async (name, fn) => {
+            try { const r = await fn(); out.probe[name] = { ok: true, r: r === undefined ? null : r }; }
+            catch (e) { out.probe[name] = { err: String(e && e.message || e).slice(0, 300) }; }
+          };
+          // 选项校验：故意传一个不存在的 key，报错文本里通常带允许列表
+          await t("clickBadOption", () => page.click("a[href='/']", { zzzNope: 1 }));
+          await t("cdpHistory", () => page.cdp("Page.getNavigationHistory", {}));
+          await t("cdpDispatchMouse", () => page.cdp("Input.dispatchMouseEvent",
+            { type: "mouseMoved", x: 5, y: 5 }));
+          await t("mouseWheel0", () => page.mouse.wheel(0, 0));
+          await t("keyboardProps", async () => {
+            const ks = [];
+            let ko = page.keyboard;
+            while (ko && ko !== Object.prototype) {
+              for (const k of Object.getOwnPropertyNames(ko)) if (typeof ko[k] === "function") ks.push(k);
+              ko = Object.getPrototypeOf(ko);
+            }
+            return { ctor: (page.keyboard && page.keyboard.constructor && page.keyboard.constructor.name) || "?",
+                     fns: [...new Set(ks)].sort() };
+          });
+        }
+        return { id, ok: true, result: out };
       }
       case "close": {
         const label = req.page || "p1";

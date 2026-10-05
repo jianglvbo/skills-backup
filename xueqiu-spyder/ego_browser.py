@@ -415,6 +415,39 @@ class Page:
         budget = max(30, int((timeout or 15000) / 1000) + 20)
         return self._bridge.call("goto", timeout=budget, page=self.label, url=url)
 
+    # ── 真输入（2026-10-05 去 goto 化）：走 CDP Input 域，事件 isTrusted=true。
+    #    evaluate 里的 el.click() 是 JS 合成事件（无 mousemove/hover/pointer 序列），
+    #    拿它替 goto 只是换一种假动作，别混用。
+    #    ⚠ ego 的 Page 不是 Playwright Page（没有 locator / goBack），实现细节在桥里。
+    def click(self, selector=None, text=None, scope=None, within=None, nth=0, child_nth=0,
+              strip_target=None, settle_ms=None, trail=None, timeout=40):
+        """真鼠标点击（CDP Input 域，事件 isTrusted=true）。
+        `selector` 与 `text` 二选一：text 给「展开 / 查看对话 / 下一页」这类没有稳定
+        class 的控件（按可见文案找，取文案最短的那个元素）。
+        `within` + `nth`：**先按 nth 选中行**（如 `.profiles__user`），再在行内找 selector
+        ——不用它的话 nth 按全页计数，与行索引不对齐（实测会点到别人头上）。
+        回执 `ms` 是分段时间（locate / moved / press）；一次点击的净成本≈CDP 往返数，
+        `trail` 是轨迹点数（默认 3，越大越像真人、越慢）。"""
+        if not selector and not text:
+            raise BridgeError("click 需要 selector 或 text")
+        return self._bridge.call("click", timeout=timeout, page=self.label,
+                                 selector=selector, text=text, scope=scope, within=within,
+                                 nth=nth, childNth=child_nth, stripTarget=strip_target,
+                                 settleMs=settle_ms, trail=trail)
+
+    def wheel(self, dy=0, dx=0, at=None, wait_ms=None):
+        """真滚轮。`at=(x, y)` 先把鼠标移到该处再滚（滚轮落在指针下的滚动容器里）。
+        别再用 scrollIntoView 替它——那是瞬移、不产生 wheel 事件。"""
+        x, y = at if at else (None, None)
+        return self._bridge.call("wheel", timeout=30, page=self.label,
+                                 dx=dx, dy=dy, x=x, y=y, waitForMs=wait_ms)
+
+    def back(self, settle_ms=None, timeout=40):
+        """真返回（走浏览器历史栈，等价于点左上角箭头；不是 evaluate('history.back()')）。
+        回执 {from, to, moved, index, depth, targetUrl}；到头了会抛 BridgeError。"""
+        return self._bridge.call("back", timeout=timeout, page=self.label,
+                                 settleMs=settle_ms)
+
     def evaluate(self, fn_or_expr, arg=None):
         # arg 必须显式给（不能是「缺字段」）：ego 的 page.evaluate 对「没有第二个
         # 参数」和「第二个参数为 null」处理不同，缺字段会报
