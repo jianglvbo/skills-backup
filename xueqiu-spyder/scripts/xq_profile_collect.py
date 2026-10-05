@@ -33,8 +33,8 @@ from ego_browser import BridgeError, EgoBridge  # noqa: E402
 import config as xqcfg  # noqa: E402
 from feed import clean_quote, derive_time, first_sentence, tidy_article  # noqa: E402
 from xq_dialog_collect import (  # noqa: E402
-    JS_MARK, JS_MODAL_CLOSE, JS_MODAL_OPEN_Q, JS_MODAL_STABLE,
-    JS_NODES, JS_OPEN_DLG, JS_ROOT_ANCHOR, JS_ROOT_FULL, JS_TOPS, PUA,
+    JS_MARK, JS_MODAL_OPEN_Q, JS_MODAL_STABLE,
+    JS_NODES, JS_ROOT_ANCHOR, JS_ROOT_FULL, JS_TOPS, PUA,
 )
 
 ANCHOR_MS = int(time.time() * 1000)
@@ -324,9 +324,19 @@ class ProfileCollector:
         return clicked
 
     # ── 对话串（复用 dialog 采集器流程：开弹窗→滚到稳定→收节点→关） ─────────
+    def _close_modal(self, page):
+        """真点击关弹窗；选择器依次试（同 JS_MODAL_CLOSE 那条兜底链的三种形态）。"""
+        for sel in ('.modal.modal__comment .modal__hd [class*=close]',
+                    '.modal.modal__comment a[class*=close]',
+                    '.modal.modal__comment [class*=modal__close]'):
+            if self._ck(page, selector=sel):
+                return True
+        return False
+
     def _chain(self, page, meta):
-        page.evaluate(JS_OPEN_DLG, None)
-        page.wait_for_timeout(1400)
+        # 「查看对话」是 `javascript:;`（没有 href），但仍是真元素，照样用真鼠标点它
+        if not self._ck(page, selector='a.dialogue__btn', within='[data-zc-dlg]', settle_ms=1400):
+            return None
         prev, stable = -1, 0
         while stable < 3:
             n = page.evaluate(JS_MODAL_STABLE, None)
@@ -336,10 +346,10 @@ class ProfileCollector:
             else:
                 stable, prev = 0, n
         nodes = page.evaluate(JS_NODES, None)
-        page.evaluate(JS_MODAL_CLOSE, None)
+        self._close_modal(page)
         page.wait_for_timeout(600)
         if page.evaluate(JS_MODAL_OPEN_Q, None):
-            page.evaluate(JS_MODAL_CLOSE, None)
+            self._close_modal(page)
             page.wait_for_timeout(500)
         for seq, nd in enumerate(nodes):
             nd['seq'] = seq
@@ -406,14 +416,18 @@ class ProfileCollector:
                         if meta.get('hasDlg'):
                             try:
                                 t = self._chain(page, meta)
-                                self.threads.append(t)
-                                ru = (t.get('root') or {}).get('url')
-                                if not ru:
-                                    page_anchor.append(t)   # 引用卡没给链接 → 进触发帖永久页取锚点（G3）
-                                # 原帖全量也攒到本页收尾统一做（锚点就在本页卡上，离开本页再也点不到）
-                                elif ru not in self.roots_seen:
-                                    self.roots_seen.add(ru)
-                                    page_roots.append(t)
+                                # 返回 None＝「查看对话」没点到（控件不在或已失效）：
+                                # 帖子本身照样入集，只是这一条串这次没拿到——别 continue，
+                                # 那会连 self.done / posts.append / i += 1 一起跳过（死循环 + 丢帖）。
+                                if t:
+                                    self.threads.append(t)
+                                    ru = (t.get('root') or {}).get('url')
+                                    if not ru:
+                                        page_anchor.append(t)   # 引用卡没给链接 → 进触发帖永久页取锚点（G3）
+                                    elif ru not in self.roots_seen:
+                                        # 原帖全量攒到本页收尾统一做（出了这一页，卡上的锚点就点不到了）
+                                        self.roots_seen.add(ru)
+                                        page_roots.append(t)
                             except BridgeError as e:
                                 print(f'  [dlg] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
                                 self.recover(e)
