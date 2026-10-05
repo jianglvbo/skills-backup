@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """雪球博主主页帖子 UI 采集器（2026-10-05 用户定稿「新方式」，重采/深窗口主力）
 
-用户口径：进博主主页 → **逐条滚动**（每帖 scrollIntoView，页面肉眼可见）→ 点「展开」拿全文
-→ 滚到底点「下一页」翻页；回复帖点「查看对话」开弹窗拿整链；转帖引用卡结构化为「回复内容」块；
-专栏帖与展开失败帖**点进详情页**拿全文+权威时间。全程页面点击，不做 API 上下文盲拉。
+用户口径：进博主主页 → **逐条滚动**（真滚轮，页面肉眼可见）→ 真点击「展开」拿全文
+→ 滚到底真点击「下一页」翻页；回复帖点「查看对话」开弹窗拿整链；转帖引用卡结构化为「回复内容」块；
+专栏帖与展开失败帖**在卡片上点那行时间进详情页**拿全文+权威时间，再**点返回**回本页同一位置。
+
+**输入一律是真的**（2026-10-05 去 goto 化）：走桥的 `click/wheel/back`（CDP Input 域，
+`isTrusted=true`），不用 `page.goto`、也不用 evaluate 里的 `el.click()`（JS 合成事件比 goto 更好认）。
+全场只剩开头进主页那一次 goto。全程页面点击，不做 API 上下文盲拉。
 
 一次翻页同时产出两份产物：
   1. 帖子集 md（`雪球采集-{博主}-{日期}.md`）→ import-post-history.js（图走「图：」行，不进正文）
@@ -27,8 +31,8 @@ from ego_browser import BridgeError, EgoBridge  # noqa: E402
 import config as xqcfg  # noqa: E402
 from feed import clean_quote, derive_time, first_sentence, tidy_article  # noqa: E402
 from xq_dialog_collect import (  # noqa: E402
-    JS_EXPAND, JS_MARK, JS_MODAL_CLOSE, JS_MODAL_OPEN_Q, JS_MODAL_STABLE,
-    JS_NEXT_PAGE, JS_NODES, JS_OPEN_DLG, JS_ROOT_ANCHOR, JS_ROOT_FULL, JS_TOPS, PUA,
+    JS_MARK, JS_MODAL_CLOSE, JS_MODAL_OPEN_Q, JS_MODAL_STABLE,
+    JS_NODES, JS_OPEN_DLG, JS_ROOT_ANCHOR, JS_ROOT_FULL, JS_TOPS, PUA,
 )
 
 ANCHOR_MS = int(time.time() * 1000)
@@ -142,6 +146,24 @@ def parse_abs_time(label):
     return derive_time(t, ANCHOR_MS)
 
 
+# 给「当前卡的展开控件」打标记，真点击由 Python 侧发（合成点击 a.click() 已退役，见 _ck）。
+# 判据两条：① 排除引用卡 blockquote 里那个（沿用 JS_EXPAND 口径）；② 文案必须是「展开」——
+# 展开成功后同一个控件会变成「收起」，不加这条就会一直判定成残留、白重两次点。
+JS_MARK_EXPAND = """() => {
+  document.querySelectorAll('[data-zc-exp]').forEach(el => el.removeAttribute('data-zc-exp'));
+  const t = document.querySelector('[data-zc-dlg]');
+  if (!t) return false;
+  const card = t.querySelector('blockquote');
+  const a = [...t.querySelectorAll('a')].find(x =>
+    (x.className || '').toString().includes('timeline__expand__control')
+    && x.offsetWidth > 0 && /展开/.test(x.textContent || '')
+    && (card ? !card.contains(x) : true));
+  if (!a) return false;
+  a.setAttribute('data-zc-exp', '1');
+  return true;
+}"""
+
+
 class ProfileCollector:
     def __init__(self, uid, blogger):
         self.uid = str(uid)
@@ -153,6 +175,9 @@ class ProfileCollector:
         self.origs_seen = 0
         self.pages_done = 0
         self.degraded = False
+        self.detail_abort = False   # 一次 back 没回时间线 → 本页剩余详情补全中止（页位已丢）
+        self.expand_present = 0     # §3.5 口径：有展开控件的帖数
+        self.expand_failed = 0      # 其中没点开的＝掉进 G2 详情补全的量（v1 基线 108/797＝14%）
         self.stop_hit = ''
 
     # ── 基础 ──────────────────────────────────────────────────────────────
@@ -180,6 +205,45 @@ class ProfileCollector:
         self.bridge = EgoBridge()
         self.bridge.start()
         self._goto_profile()
+
+    # ── 真输入（2026-10-05 去 goto 化）────────────────────────────────────────
+    # 一律走桥的 click / wheel / back（CDP Input 域，事件 isTrusted=true）。
+    # 不用 evaluate 里的 el.click()：那是 JS 合成事件（无 mousemove/hover/pointer 序列），
+    # 拿它替 goto 只是换一种假动作，风控面上更显眼。
+    def _ck(self, page, settle_ms=None, **kw):
+        """真点击；元素本来不存在时返回 False（不抛），调用方按「这个控件没有」分支处理。
+        trail 固定 1：实测单段轨迹净 513ms、三段 1896ms，批量环节花不起那个差。
+        **strip_target 缺省打开**——卡片那行时间的 `<a>` 实测带 target="_blank"
+        （10-05 诊断：`A.date-and-source` 的 target 就是 _blank），不摘就等于每点一次
+        开一张新标签，主页面纹丝不动，还很快撞满 ego 的 8 页上限。"""
+        kw.setdefault('trail', 1)
+        kw.setdefault('strip_target', True)
+        try:
+            page.click(settle_ms=settle_ms, **kw)
+            return True
+        except BridgeError as e:
+            if '找不到' in str(e):
+                return False
+            raise
+
+    def _expand(self, page):
+        """真点击「展开」，带懒挂载兜底与残留重点（v1 §3.5：展开失败率决定 G2 的量级）。"""
+        clicked = False
+        for attempt in (1, 2):
+            if attempt == 2:
+                # 滚出去再滚回来，强制这张卡重新布局一次（懒挂载没等到时的兜底）
+                page.wheel(dy=-900)
+                page.wait_for_timeout(250)
+                page.wheel(dy=900, wait_ms=400)
+            if not page.evaluate(JS_MARK_EXPAND, None):
+                break
+            if not self._ck(page, selector='[data-zc-exp]', settle_ms=900):
+                break
+            clicked = True
+            if not page.evaluate(JS_MARK_EXPAND, None):
+                break                       # 「展开」没了 = 展开成功
+            print('    [expand] 展开控件还在，滚出滚回再点一次', flush=True)
+        return clicked
 
     # ── 对话串（复用 dialog 采集器流程：开弹窗→滚到稳定→收节点→关） ─────────
     def _chain(self, page, meta):
@@ -231,18 +295,24 @@ class ProfileCollector:
                     self.degraded = True
                     break
                 i = 0
+                page_todo = []      # 本页需要进详情的帖（现场点+back，见 _visit_details）
                 while i < tops:
                     try:
                         if not page.evaluate(JS_MARK, {'i': i}):
                             break
                         page.wait_for_timeout(DWELL_MS)
-                        clicked = page.evaluate(JS_EXPAND, None)
+                        clicked = self._expand(page)
                         if clicked:
                             page.wait_for_timeout(900)
                         meta = page.evaluate(JS_POST_META, {'uid': self.uid})
                         if not meta:
                             i += 1
                             continue
+                        if meta.get('expandPresent'):
+                            # 与 v1 同口径（108/797＝14% 那个数）：有展开控件却没点开的才算失败
+                            self.expand_present += 1
+                            if not clicked:
+                                self.expand_failed += 1
                         tdt, _ed = parse_abs_time(meta['timeLabel'])
                         if stop_date and tdt and tdt.date() < stop_date:
                             self.stop_hit = f'{meta["url"]} {tdt:%Y-%m-%d %H:%M}'
@@ -269,6 +339,8 @@ class ProfileCollector:
                         if not meta.get('hasDlg') and not meta.get('isCol'):
                             self.origs_seen += 1
                         self.posts.append({**meta, 'needs_detail': needs_detail})
+                        if needs_detail:
+                            page_todo.append(self.posts[-1])
                         if len(self.posts) % 10 == 0:
                             print(f'  … 已采 {len(self.posts)} 帖（串 {len(self.threads)}）', flush=True)
                         skip.pop(i, None)
@@ -294,11 +366,18 @@ class ProfileCollector:
                         page = self.bridge.main_page
                         tops = page.evaluate(JS_TOPS, None)
                         i = 0
+                print(f'[expand] 累计：带展开控件 {self.expand_present}，没点开 {self.expand_failed}'
+                      f'（{round(100 * self.expand_failed / max(1, self.expand_present))}%，'
+                      f'v1 基线 14%、§3.5 目标 <5%）', flush=True)
+                # 本页采完，**趁时间线还停在本页**把需要详情的帖子补掉：
+                # 现场点进详情 → 取全文/权威时间 → back 回本页同一位置
+                # （P0 实测 back 保留页位，重扫成本 0；换成页尾批量或事后 goto 都要重新翻回来）。
+                self._visit_details(page_todo, pg)
                 self.pages_done = pg
                 if broken:
                     break
                 if pg < pages:
-                    if not page.evaluate(JS_NEXT_PAGE, None):
+                    if not self._ck(page, selector='a.pagination__next', settle_ms=1000):
                         print('[next] 无下一页，提前收', flush=True)
                         break
                     page.wait_for_timeout(int(xqcfg.page_delay() * 1000))
@@ -306,13 +385,14 @@ class ProfileCollector:
             raise
         finally:
             pass  # 桥留给 main() 收尾再关：后置的原帖/详情补全还要用，提前关会白启一轮
-        self._detail_fulls()
         self._fix_roots()
         self._thread_full_roots()
         return self
 
-    # ── 后置：详情页补全（专栏帖/展开失败帖；点进详情=用户口径，节流同 config.DETAIL_*） ──
-    def _detail_visit(self, url):
+    # ── 详情与原帖访问 ────────────────────────────────────────────────────────
+    def _goto_visit(self, url):
+        """按 URL 直达取详情。**只剩 G4（原帖全量）还在用它**——那是 P3 的活：
+        原帖在时间线上有锚点（引用卡的「 · 讨论 N」/长文标题），改成现场点+back 后本方法即可删除。"""
         for attempt in (1, 2):
             try:
                 page = self.bridge.main_page
@@ -320,35 +400,79 @@ class ProfileCollector:
                 page.wait_for_timeout(1800)
                 return page.evaluate(JS_ROOT_FULL, None)
             except BridgeError as e:
-                print(f'  [detail] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
+                print(f'  [goto] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
                 if attempt == 1:
                     self.recover(e)
                 else:
                     return None
             except Exception as e2:
-                print(f'  [detail] evaluate 失败 {url}: {type(e2).__name__}', flush=True)
+                print(f'  [goto] evaluate 失败 {url}: {type(e2).__name__}', flush=True)
                 return None
         return None
 
-    def _detail_fulls(self):
-        todo = [p for p in self.posts if p.get('needs_detail') and p.get('url')]
+    def _detail_visit(self, p):
+        """点卡片那行时间的永久链进详情页 → 取全文+权威时间 → back 回时间线。
+
+        锚点判据（R2 录制 + P0 探针实测）：每张卡自带 `a[href="/uid/pid"]`（就是那行时间，
+        带「修改于」前缀同理），**长文帖也是这一条**，不必去找标题链接；
+        卡上的「转发/讨论/赞/收藏」与主页 tab 的 href 全是当前页，别误用。
+        找不到锚点就标 detail_failed 留给下次，**不静默回落 goto**——回落等于把最大那块风控面留着。
+        """
+        path = '/' + re.sub(r'^https?://[^/]+/', '', p['url']).split('#')[0].strip('/')
+        for attempt in (1, 2):
+            try:
+                page = self.bridge.main_page
+                if not self._ck(page, selector=f'a[href="{path}"]', settle_ms=1800):
+                    print(f'  [detail] 卡上找不到锚点 {path}，标摘要留给下次', flush=True)
+                    return None
+                if path not in (page.url or ''):
+                    print(f'  [detail] 点了没落到详情页（当前 {page.url}）', flush=True)
+                    return None
+                info = page.evaluate(JS_ROOT_FULL, None)
+                page.back(settle_ms=1200)
+                if f'/u/{self.uid}' not in (page.url or ''):
+                    page.back(settle_ms=1200)          # 第一次 back 没回到时间线，再退一次
+                if f'/u/{self.uid}' not in (page.url or ''):
+                    self.detail_abort = True           # 页位已丢，本页剩下的点了也找不到锚点
+                    print(f'  [detail] back 没回时间线（{page.url}），本页补全中止', flush=True)
+                return info
+            except BridgeError as e:
+                print(f'  [detail] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
+                self.detail_abort = True   # recover 会把时间线拉回第 1 页，本页剩余锚点必丢
+                if attempt == 1:
+                    self.recover(e)
+                return None
+            except Exception as e2:
+                print(f'  [detail] evaluate 失败 {path}: {type(e2).__name__}', flush=True)
+                return None
+        return None
+
+    def _visit_details(self, todo, pg):
+        """一页采完、点「下一页」之前统一补详情（顺序纪律见 out/qoder/de-goto-plan-v2.md §一之二：
+        back 之后卡片的**展开态会复位**，所以取文必须在进详情之前做完，这里不再回头补展开）。"""
+        todo = [p for p in todo if p.get('needs_detail') and p.get('url')]
         if not todo:
             return
-        print(f'[detail] 点进详情页补全 {len(todo)} 帖（专栏/展开失败）', flush=True)
+        print(f'[detail] 第 {pg} 页现场补全 {len(todo)} 帖（专栏/展开失败）', flush=True)
+        self.detail_abort = False
         n_break = 0
         miss_streak = 0
         waf_barked = False
-        for k, p in enumerate(todo):
+        for p in todo:
+            if self.detail_abort:
+                print(f'  [detail] 页位已丢，第 {pg} 页剩余 {len(todo)} 帖留给下次', flush=True)
+                break
             if n_break >= xqcfg.DETAIL_BREAK_N:
                 print(f'  [detail] 长歇 {xqcfg.DETAIL_BREAK_S}s', flush=True)
                 time.sleep(xqcfg.DETAIL_BREAK_S)
                 n_break = 0
-            info = self._detail_visit(p['url'])
+            info = self._detail_visit(p)
             time.sleep(xqcfg.page_delay())   # 详情页间隔同样吃 XUEQIU_PAGE_DELAY_RANGE 档
             n_break += 1
             if info and info.get('text'):
                 p['full'] = {'text': info['text'], 'time': info['time'],
                              'title': info.get('title') or '', 'imgs': info.get('imgs') or []}
+                miss_streak = 0
                 print(f"  [detail] {p['url'][-12:]} {len(info['text'])} 字 · 图{len(p['full']['imgs'])}", flush=True)
             else:
                 p['detail_failed'] = True
@@ -395,7 +519,7 @@ class ProfileCollector:
         waf_barked = False
         for t in need:
             ru = t['root']['url']
-            info = self._detail_visit(ru)
+            info = self._goto_visit(ru)
             time.sleep(xqcfg.page_delay())
             if info and info.get('text'):
                 miss_streak = 0
