@@ -221,6 +221,115 @@ JS_NEXT_PAGE = """() => {
   return true;
 }"""
 
+# ── 入站（2026-10-05 去 goto 化）：首页 1 次 goto → 真点「关注 N」→ 按显示名真点博主 → 校验 uid
+#   两个采集器共用这一份（xq_profile_collect 本来就 import 本模块，放这里不成环）。
+#   **别在两边各写一遍**——入站分叉是最难查的那类漂移（一条会校验 uid、一条不会）。
+#   ck 由调用方传（各采集器的 _ck 自带 trail / strip_target 缺省）。
+FRIENDS_A = "a[href='/center/#/friends']"
+JS_FOLLOW_ROWS = """() => {
+  const out = [];
+  document.querySelectorAll('.profiles__user').forEach((c, i) => {
+    const a = c.querySelector('a.avatar') || c.querySelector('a[href]');
+    out.push({ i: i, name: (c.innerText || '').split('\n')[0].trim(),
+               href: a ? a.getAttribute('href') : null });
+  });
+  return out;
+}"""
+
+
+def real_click(page, settle_ms=None, **kw):
+    """真鼠标点击（桥的 click，走 CDP Input 域，事件 isTrusted=true）；
+    元素本来不存在返回 False 而不抛，让调用方按「这个控件没有」分支处理。
+    trail 固定 1：实测单段轨迹净 ~0.5s、三段 ~1.9s，批量环节花不起那个差。
+    strip_target 缺省**开**——卡片那行时间的 <a> 带 target="_blank"（10-05 实踩：
+    不摘的话每次点击都去开新标签、主页面纹丝不动）。只有 click_tab 故意保留 target。"""
+    kw.setdefault('trail', 1)
+    kw.setdefault('strip_target', True)
+    try:
+        page.click(settle_ms=settle_ms, **kw)
+        return True
+    except BridgeError as e:
+        if '找不到' in str(e):
+            return False
+        raise
+
+
+def url_path(u):
+    """'https://xueqiu.com/1553799558/410655234' → '/1553799558/410655234'（DOM 里 href 就是这个形态）"""
+    return '/' + re.sub(r'^https?://[^/]+/', '', u or '').split('#')[0].strip('/')
+
+
+def visit_via_tab(bridge, page, selectors, script, settle_ms=1800):
+    """真点击开**新标签** → 在那张页上 evaluate → 关标签；主页面（时间线）全程不动。
+    为什么不用「点进去再 back」：实测深页 back 掉页率 5/5（第 3 页进详情，back 回来落在第 1 页），
+    一掉页后面每条锚点都找不到。selectors 依次试，返回 (info, err)。"""
+    for sel in selectors:
+        try:
+            r = page.click_tab(selector=sel, settle_ms=settle_ms, trail=1)
+        except BridgeError as e:
+            msg = str(e)
+            if '找不到' in msg:
+                continue
+            if '没等新到标签' in msg:      # 该链接没带 target → 主页面被就地导航：就地抓再 back 兜
+                try:
+                    info = page.evaluate(script, None)
+                finally:
+                    try:
+                        page.back(settle_ms=1200)
+                    except BridgeError:
+                        pass
+                return info, None
+            raise
+        tp = bridge.tab_page(r['label'])
+        try:
+            info = tp.evaluate(script, None)
+        finally:
+            tp.close()                     # 随用随关：ego 一个空间只有 8 张页
+        return info, None
+    return None, 'no-anchor'
+
+
+def friends_rows(page, want_name=None, rounds=12, gap_ms=1800):
+    """轮询读关注列表。列表是 AJAX 渲染的：冷空间首开常只有占位行（10-05 实测 1 行就判
+    「没这个人」退出过）。命中 want_name 立刻返回；否则等行数**连续三轮不变且非空**
+    才判「渲染完了」。⚠ 比的是上一轮行数，不是稳定轮数计数器。"""
+    rows, prev_n, stable = [], -1, 0
+    for _ in range(rounds):
+        page.wait_for_timeout(gap_ms)
+        rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
+        if want_name and any(r.get('name') == want_name for r in rows):
+            return rows
+        stable = stable + 1 if (rows and len(rows) == prev_n) else 0
+        prev_n = len(rows)
+        if stable >= 3:
+            break
+    return rows
+
+
+def enter_profile_by_click(ck, page, uid, blogger, fail=sys.exit):
+    """进某位博主主页，全程真点击。找不到 / 落地 uid 对不上 → fail() 退出，
+    **不静默回落 goto**：回落等于把最大那块风控面留着，而且会静默采错人。
+    为什么按显示名：列表里的 href 常是自定义域名（实测 /investinginchina、/forcode、/ericwarn），
+    对不上 uid；点进去才 302 到 /u/<uid>，所以落地后必须回头校验 uid。"""
+    if not blogger or blogger == str(uid):
+        fail('入站需要博主昵称：关注列表里只能按显示名定位（href 常是自定义域名）')
+    page.goto('https://www.xueqiu.com/', wait_until='domcontentloaded', timeout=25000)
+    page.wait_for_timeout(2200)
+    # 入站每场就这两次点击，用 trail=3 换更像真人的位移；批量环节在 _ck 里固定 trail=1
+    if not ck(selector=FRIENDS_A, settle_ms=2600, trail=3):
+        fail('入站失败：首页找不到「关注 N」入口（登录态掉了或页面改版）；不回落 goto')
+    rows = friends_rows(page, want_name=blogger)
+    hit = [r for r in rows if r.get('name') == blogger]
+    if not hit:
+        fail(f'入站失败：关注列表 {len(rows)} 行里没有「{blogger}」；不回落 goto')
+    if not ck(selector='a.avatar', within='.profiles__user', nth=hit[0]['i'], settle_ms=3000, trail=3):
+        fail(f'入站失败：「{blogger}」那一行点不动（href={hit[0]["href"]}）；不回落 goto')
+    landed = re.search(r'/u/(\d+)', page.url or '')
+    if not landed or landed.group(1) != str(uid):
+        fail(f'入站失败：点「{blogger}」落到 {page.url}，uid 对不上目标 {uid}（重名或列表错位）；不回落 goto')
+    page.wait_for_timeout(1200)
+
+
 # 关注列表枚举（2026-10-03 关注提炼，用户指定入口=雪球关注列表）：
 #   首页左栏「关注 N」→ /center/#/friends；列表项=.profiles__user（a.avatar[href=/uid]）
 JS_FOLLOW_LIST = """() => {
@@ -287,6 +396,17 @@ class Collector:
         self.out = {'uid': uid, 'blogger': blogger,
                     'collected_at': dt.datetime.now().isoformat(timespec='seconds'),
                     'pages': 0, 'replies': 0, 'origs_seen': 0, 'threads': []}
+        # 去 goto 化（10-05）：锚定与原帖全量都挪到「每页收尾」做，因为只有那时卡上还有锚点
+        self.root_queue = set()      # 已排队的原帖 url（跨页去重）
+        self.pending_roots = []      # 本页刚锚出 root.url、等着抓全量的串
+
+    def _flush_page(self, page_threads, full_root):
+        """本页收尾：锚点还在这页的卡上，先补锚定（会往 pending_roots 追加），再抓原帖全量。
+        顺序不能反——锚出来的新原帖也得在这一页被抓掉，出了这页就点不到了。"""
+        self.fix_roots(page_threads)
+        if full_root:
+            self.collect_full_roots(page_threads + self.pending_roots)
+        self.pending_roots = []
 
     def start(self):
         self.bridge.start()
@@ -295,10 +415,14 @@ class Collector:
     def stop(self):
         self.bridge.stop()
 
+    def _ck(self, page, **kw):
+        return real_click(page, **kw)
+
     def _goto_profile(self):
+        """入站：首页 1 次 goto → 真点「关注 N」→ 按显示名真点该博主 → 校验落地 uid。
+        实现与 xq_profile_collect 共用上面那一份（见 enter_profile_by_click）。"""
         page = self.bridge.main_page
-        page.goto(f'https://www.xueqiu.com/u/{self.uid}')
-        page.wait_for_timeout(2200)
+        enter_profile_by_click(lambda **kw: self._ck(page, **kw), page, self.uid, self.blogger)
         return page
 
     @staticmethod
@@ -332,38 +456,46 @@ class Collector:
         self.bridge.start()
         self._goto_profile()
 
-    def fix_roots(self):
+    def fix_roots(self, threads=None):
         """root 锚定补齐（2026-10-02 串条聚合挂根帖卡的前置）：被回复对象是评论时，
-        时间线引用卡里没有 status 链接 → root 空；按 dialog-flow 定稿打开回复帖
-        永久页取上下文锚点（a.fake-anchor / a.replay-count → 原帖 status id）。"""
-        need = [t for t in self.out['threads'] if not (t.get('root') or {}).get('url')]
+        时间线引用卡里没有 status 链接 → root 空；打开回复帖永久页取上下文锚点
+        （a.fake-anchor / a.replay-count → 原帖 status id）。
+        2026-10-05 去 goto 化：原来是 goto 回复帖永久页，现在真点触发帖那行时间开新标签。
+        ⚠ 所以**必须在锚点还在屏上的那一页收尾时调**（threads 传本页的串），
+          等全场扫完再调，卡就点不到了——原来那版正是靠 goto 才敢拖到最后。"""
+        need = [t for t in (threads if threads is not None else self.out['threads'])
+                if not (t.get('root') or {}).get('url')]
         if not need:
             return
         print(f'[root] 补锚定 {len(need)} 条', flush=True)
         page = self.bridge.main_page
         for t in need:
+            path = url_path(t['trigger']['url'])
             try:
-                page.goto(t['trigger']['url'], wait_until='domcontentloaded', timeout=20000)
-                page.wait_for_timeout(1600)
-                info = page.evaluate(JS_ROOT_ANCHOR, None)
+                info, err = visit_via_tab(self.bridge, page, (f'a[href="{path}"]',), JS_ROOT_ANCHOR)
                 # ⚠ 只锚 URL 不抓正文：回复帖永久页的 .article__bd 是回复帖正文（文不对题），
                 # 2026-10-02 实测写过脏 root_content；原帖正文快照需在 root_url 页面抓，另做
                 if info and info.get('rootUrl'):
                     t['root'] = {'url': info['rootUrl']}
+                    ru = info['rootUrl']
+                    if ru not in self.root_queue:
+                        self.root_queue.add(ru)
+                        self.pending_roots.append(t)
                 else:
-                    print(f"[root] 无锚点 {t['trigger']['url']}", flush=True)
+                    print(f"[root] 无锚点 {t['trigger']['url']} ({err or '页面无锚点'})", flush=True)
             except BridgeError as e:
-                print(f'[root] 桥错误: {e}', flush=True)
+                print(f'[root] 桥错误: {str(e).splitlines()[0][:90]}', flush=True)
                 self.recover(f'{e}')
 
-    def collect_full_roots(self):
-        """原帖全量抓取（2026-10-03 卡片重构）：对每条有 root.url 的串 goto 原帖页，
-        抓完整正文（保留段落）+时间·形态+图片 → root.full；落库侧写 post_history
-        （post_kind_code='origin'，无论原帖作者是不是追踪博主）并回填 root_ph_id。
-        ⚠ 与 fix_roots 的「只锚 URL」不矛盾：那里在**回复帖页**锚定，这里在**原帖页**抓正文。"""
-        need = []
-        seen = set()
-        for t in self.out['threads']:
+    def collect_full_roots(self, threads=None):
+        """原帖全量：真点引用卡里的被引链接开新标签，抓完整正文（保留段落）+时间·形态+图片
+        → root.full；落库侧写 post_history（post_kind_code='origin'）并回填 root_ph_id。
+        ⚠ 与 fix_roots 的「只锚 URL」不矛盾：那里在**回复帖页**锚定，这里在**原帖页**抓正文。
+        锚点两条形态（10-05 录制实测）：普通帖走「 · 讨论 N」（href 结尾 #comment），
+        长文引用卡走标题链接。两条都没有就**留引用卡快照，不回落 goto**。"""
+        pool = threads if threads is not None else self.out['threads']
+        need, seen = [], set()
+        for t in pool:
             r = (t.get('root') or {})
             u = r.get('url')
             if u and not r.get('full') and u not in seen:
@@ -375,23 +507,19 @@ class Collector:
         page = self.bridge.main_page
         for t in need:
             ru = t['root']['url']
+            path = url_path(ru)
             info = None
-            for attempt in (1, 2):   # 桥断→恢复→重试一次
-                try:
-                    page = self.bridge.main_page
-                    page.goto(ru, wait_until='domcontentloaded', timeout=20000)
-                    page.wait_for_timeout(1800)
-                    info = page.evaluate(JS_ROOT_FULL, None)
-                    break
-                except BridgeError as e:
-                    print(f'[full-root] 桥错误: {e}', flush=True)
-                    if attempt == 1:
-                        self.recover(f'{e}')
-                    else:
-                        break
-                except Exception as e2:
-                    print(f'  [full] evaluate 失败 {ru}: {type(e2).__name__} {str(e2).splitlines()[0][:120]}', flush=True)
-                    break
+            try:
+                info, err = visit_via_tab(self.bridge, page,
+                                          (f'a[href="{path}#comment"]', f'a[href="{path}"]'),
+                                          JS_ROOT_FULL)
+                if err:
+                    print(f'  [full] 卡上取不到原帖页（{err}），留快照 {ru}', flush=True)
+            except BridgeError as e:
+                # 单页卡住不升级成整桥重启（10-05 教训：recover 里一次 90s 启动超时会带走整批）
+                print(f'[full-root] 页面卡住: {str(e).splitlines()[0][:90]}', flush=True)
+                continue
+            time.sleep(1.2 + random.random() * 0.6)
             if info and info.get('text'):
                 full = {'text': info['text'], 'time': info['time'],
                         'form': info['form'], 'title': info.get('title') or '',
@@ -400,8 +528,8 @@ class Collector:
                 for t2 in self.out['threads']:
                     if (t2.get('root') or {}).get('url') == ru:
                         t2['root']['full'] = full
-                print(f"  [full] {ru[-12:]} {len(info['text'])} 字 · 图{len(full['imgs'])} · time={full['time'][:16]}", flush=True)
-            elif info is not None:
+                print(f"  [full] {ru[-12:]} {len(info['text'])} 字 · 图{len(full['imgs'])}", flush=True)
+            else:
                 print(f'  [full] 无正文容器 {ru}', flush=True)
 
     def extract_thread(self, page, i):
@@ -441,7 +569,7 @@ class Collector:
         return {'trigger': {'url': meta['url'], 'time': meta['time']},
                 'root': meta['root'], 'nodes': nodes, '_modal_close': closed}
 
-    def run(self, pages, stop_before=''):
+    def run(self, pages, stop_before='', full_root=False):
         self.start()
         skip = {}          # idx -> 已重试次数（确定性错误不重试）
         degraded = False   # 有条目因反复失败被跳过 → 退出码 3
@@ -455,6 +583,7 @@ class Collector:
                     degraded = True
                     break
                 i = 0
+                page_threads = []    # 本页采到的串（收尾时它们的锚点还在屏上）
                 while i < tops:
                     try:
                         if not page.evaluate(JS_MARK, {'i': i}):
@@ -466,6 +595,7 @@ class Collector:
                             if self._older_than(qtime, stop_before):
                                 print(f'[time] {qurl} 早于 {stop_before}，时间线已滚过目标窗口，止损', flush=True)
                                 self.out['pages'] = pg
+                                self._flush_page(page_threads, full_root)   # 止损也要收尾，否则本页锚点白丢
                                 return degraded
                         if qurl and qurl in self.done:
                             i += 1
@@ -482,6 +612,7 @@ class Collector:
                         if turl and turl not in self.done:
                             rec.pop('_modal_close', None)
                             self.out['threads'].append(rec)
+                            page_threads.append(rec)
                             self.out['replies'] += 1
                             self.done.add(turl)
                             print(f'  [{i}] 串 {len(rec["nodes"])} 节点 · {turl}', flush=True)
@@ -510,6 +641,7 @@ class Collector:
                         page = self.bridge.main_page
                         tops = page.evaluate(JS_TOPS, None)
                         i = 0          # 本页重扫，done 集合跳过已采
+                self._flush_page(page_threads, full_root)
                 out_pages = pg
                 if pg < pages:
                     if not page.evaluate(JS_NEXT_PAGE, None):
@@ -537,18 +669,15 @@ def follow_mode(args):
     bridge.start()
     try:
         page = bridge.main_page
-        page.goto('https://xueqiu.com', wait_until='domcontentloaded', timeout=25000)
-        page.wait_for_timeout(2400)
-        entered = page.evaluate("""() => {
-          const a = document.querySelector("a[href='/center/#/friends']");
-          if (!a) return false;
-          a.click();
-          return true;
-        }""", None)
-        if not entered:
-            page.goto('https://xueqiu.com/center/#/friends', wait_until='domcontentloaded', timeout=25000)
-        page.wait_for_timeout(3200)
-        users = page.evaluate(JS_FOLLOW_LIST, None)
+        page.goto('https://xueqiu.com/', wait_until='domcontentloaded', timeout=25000)
+        page.wait_for_timeout(2200)
+        # 真点「关注 N」进列表（原来这里也是 JS 合成点击 + 点不动就 goto 兜底，两处都换掉了）
+        if not real_click(page, selector=FRIENDS_A, settle_ms=2600, trail=3):
+            print('[follow] 首页找不到「关注 N」入口（登录态掉了或页面改版）；不回落 goto', flush=True)
+            users = []
+        else:
+            friends_rows(page)                      # 等 AJAX 渲染完（冷空间首开常只有占位行）
+            users = page.evaluate(JS_FOLLOW_LIST, None)
         print(f'[follow] 关注列表 {len(users)} 人', flush=True)
     finally:
         bridge.stop()
@@ -562,10 +691,8 @@ def follow_mode(args):
             f"~/.cache/xueqiu-spyder/out/dialog/follow-{u['name'] or u['uid']}-{dt.date.today():%Y%m%d}.json")
         print(f'[follow] → {u["name"]}({u["uid"]}) 回补点={cutoff or "无"}', flush=True)
         c = Collector(u['uid'], u['name'])
-        degraded = c.run(args.pages, stop_before=cutoff)
-        c.fix_roots()
-        if args.full_root:
-            c.collect_full_roots()
+        # 锚定与原帖全量已在 run() 里**每页收尾**做完（去 goto 化：出了那一页卡上就没锚点了）
+        c.run(args.pages, stop_before=cutoff, full_root=args.full_root)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             _json.dump(c.out, f, ensure_ascii=False, indent=1)
@@ -595,10 +722,7 @@ def main():
         ap.error('需要 uid（或 --follow）')
 
     c = Collector(a.uid, a.blogger)
-    c.run(a.pages, stop_before=a.stop_before)
-    c.fix_roots()
-    if a.full_root:
-        c.collect_full_roots()
+    c.run(a.pages, stop_before=a.stop_before, full_root=a.full_root)
 
     path = a.out or os.path.expanduser(
         f"~/.cache/xueqiu-spyder/out/dialog/雪球对话串-{a.blogger or a.uid}-{dt.date.today():%Y%m%d}.json")

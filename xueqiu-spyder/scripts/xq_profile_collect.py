@@ -33,7 +33,7 @@ from ego_browser import BridgeError, EgoBridge  # noqa: E402
 import config as xqcfg  # noqa: E402
 from feed import clean_quote, derive_time, first_sentence, tidy_article  # noqa: E402
 from xq_dialog_collect import (  # noqa: E402
-    JS_MARK, JS_MODAL_OPEN_Q, JS_MODAL_STABLE,
+    JS_MARK, JS_MODAL_OPEN_Q, JS_MODAL_STABLE, enter_profile_by_click,
     JS_NODES, JS_ROOT_ANCHOR, JS_ROOT_FULL, JS_TOPS, PUA,
 )
 
@@ -148,20 +148,6 @@ def parse_abs_time(label):
     return derive_time(t, ANCHOR_MS)
 
 
-# 入站（G1）用：关注列表里「显示名 + href」。为什么非按名字不可——列表里的 href 常是
-# 自定义域名（实测 /investinginchina、/forcode、/ericwarn），对不上 uid；
-# 顺带说明 xq_dialog_collect.JS_FOLLOW_LIST 那条 `^/\d+$` 判据会**静默漏掉这些博主**（P5 修）。
-FRIENDS_A = "a[href='/center/#/friends']"
-JS_FOLLOW_ROWS = r"""() => {
-  const out = [];
-  document.querySelectorAll('.profiles__user').forEach((c, i) => {
-    const a = c.querySelector('a.avatar') || c.querySelector('a[href]');
-    out.push({ i: i, name: (c.innerText || '').split('\n')[0].trim(),
-               href: a ? a.getAttribute('href') : null });
-  });
-  return out;
-}"""
-
 # 给「当前卡的展开控件」打标记，真点击由 Python 侧发（合成点击 a.click() 已退役，见 _ck）。
 # 判据两条：① 排除引用卡 blockquote 里那个（沿用 JS_EXPAND 口径）；② 文案必须是「展开」——
 # 展开成功后同一个控件会变成「收起」，不加这条就会一直判定成残留、白重两次点。
@@ -209,43 +195,11 @@ class ProfileCollector:
             pass
 
     def _goto_profile(self):
-        """入站（G1 点击化）：首页 1 次 goto（全场唯一一次）→ 真点「关注 N」→
-        关注列表里按显示名真点该博主 → 落地校验 uid。
-        找不到 / 对不上 uid 一律**明确失败退出，不静默回落 goto**——
-        回落等于把最大那块风控面留着，而且会静默采错人。"""
+        """入站（G1 点击化）：共用 xq_dialog_collect.enter_profile_by_click——
+        首页 1 次 goto → 真点「关注 N」→ 按显示名真点该博主 → 校验落地 uid；
+        找不到或对不上直接退出，不静默回落 goto。两边共用一份，别在这里另写一套。"""
         page = self.bridge.main_page
-        if not self.blogger or self.blogger == self.uid:
-            sys.exit('入站需要 --blogger 昵称：关注列表里只能按显示名定位（href 常是自定义域名）')
-        page.goto('https://www.xueqiu.com/', wait_until='domcontentloaded', timeout=25000)
-        page.wait_for_timeout(2200)
-        # 入站每场只有这两次点击，用 trail=3 换更像真人的位移；批量环节在 _ck 里固定 trail=1
-        if not self._ck(page, selector=FRIENDS_A, settle_ms=2600, trail=3):
-            sys.exit('入站失败：首页找不到「关注 N」入口（登录态掉了或页面改版）；不回落 goto')
-        # 列表是 AJAX 渲染：冷空间首开常只有占位行（10-05 实测 1 行即退出过）——
-        # 轮询等目标名字出现；行数**连续三轮不变且非空**才判「渲染完了、真没这个人」。
-        # ⚠ 比的是「上一轮的行数」不是「稳定轮数」——写成比计数器就永不成立，
-        #   找不到人时必定把 12 轮 ×1.8s 跑满（10-05 另一会话补这段时踩过）。
-        rows, hit, prev_n, stable = [], [], -1, 0
-        for _ in range(12):
-            page.wait_for_timeout(1800)
-            rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
-            hit = [r for r in rows if r.get('name') == self.blogger]
-            if hit:
-                break
-            stable = stable + 1 if (rows and len(rows) == prev_n) else 0
-            prev_n = len(rows)
-            if stable >= 3:
-                break
-        if not hit:
-            sys.exit(f'入站失败：关注列表等待后 {len(rows)} 行里没有「{self.blogger}」；不回落 goto')
-        if not self._ck(page, selector='a.avatar', within='.profiles__user',
-                        nth=hit[0]['i'], settle_ms=3000, trail=3):
-            sys.exit(f'入站失败：「{self.blogger}」那一行点不动（href={hit[0]["href"]}）；不回落 goto')
-        landed = re.search(r'/u/(\d+)', page.url or '')
-        if not landed or landed.group(1) != self.uid:
-            sys.exit(f'入站失败：点「{self.blogger}」落到 {page.url}，'
-                     f'uid 对不上目标 {self.uid}（重名或列表错位）；不回落 goto')
-        page.wait_for_timeout(1200)
+        enter_profile_by_click(lambda **kw: self._ck(page, **kw), page, self.uid, self.blogger)
 
     def recover(self, err):
         print(f'  ⚠️ 恢复：{str(err).splitlines()[0][:120]}', flush=True)
