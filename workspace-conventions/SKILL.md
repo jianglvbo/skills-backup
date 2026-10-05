@@ -15,7 +15,7 @@ description: 工作区协作规范初始化与核对：把跨项目通用约定�
 | 3 | 项目说明给下一个开发者 | `README.md`：平台是什么、怎么跑起来、怎么开发、怎么用；不写 agent 纪律（归 AGENTS.md）、不堆内部历史 | 是（只查是否与 AGENTS.md 双写） |
 | 4 | 共享 skill 层 | 工作区 `.agents/skills/` | **本体不可移植**，只搬规则 |
 | 5 | 跨会话/跨 agent 交接 | `git log` + `git status/diff` → commit message | 是 |
-| 6 | 交付产物 | `out/<agent>/`，分格名**只认 AGENTS.md 锚点名单**，不进 git；agent 按自家工具名另开的格子＝名单外，核对时只上报 | 是 |
+| 6 | 交付产物 | 私格 `out/<agent>/`（只归本名 agent 读写）＋ 可选共享格 `common/`（全员读写，只收有交接价值的产物——哪些算、命名法、派工读例外等细则各仓自定）；分格名**只认 AGENTS.md 锚点名单**，不进 git；agent 按自家工具名另开的格子＝名单外，核对时只上报 | 是 |
 | 7 | git 分支命名 | 通用骨架见下方「分支命名」一节；各仓 AGENTS.md 只写本项目选定的 scope 维度与示例 | 骨架可移植，scope 维度各仓自选 |
 
 > 边界：git 的**动作**（暂存/提交/推送）走 git-ops，本 skill 只定「规范写在哪、怎么校验」；
