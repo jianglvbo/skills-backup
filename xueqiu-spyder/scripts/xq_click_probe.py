@@ -140,8 +140,11 @@ def main():
         step('click 关注列表入口', s2)
 
         # S3 列表里按名字找博主 → 真点击进主页
+        #     必须走共用的 friends_rows（含 AJAX 轮询）与按 href 点击——
+        #     10-05 ZCode 撞坑：探针这里自己单次枚举 + 按外壳 nth 点，比采集器先挂
         def s3():
-            rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
+            from xq_dialog_collect import friends_rows
+            rows = friends_rows(page, want_name=args.name)
             hit = [r for r in rows if r.get('name') == args.name]
             if not hit:
                 raise RuntimeError(f'关注列表 {len(rows)} 行里没有「{args.name}」；样本={[r["name"] for r in rows[:8]]}')

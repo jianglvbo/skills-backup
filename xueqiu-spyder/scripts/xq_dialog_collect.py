@@ -249,13 +249,37 @@ JS_NEXT_PAGE = """() => {
 #   ck 由调用方传（各采集器的 _ck 自带 trail / strip_target 缺省）。
 FRIENDS_A = "a[href='/center/#/friends']"
 JS_FOLLOW_ROWS = r"""() => {
-  const out = [];
-  document.querySelectorAll('.profiles__user').forEach((c, i) => {
-    const a = c.querySelector('a.avatar') || c.querySelector('a[href]');
-    out.push({ i: i, name: (c.innerText || '').split('\n')[0].trim(),
-               href: a ? a.getAttribute('href') : null });
-  });
-  return out;
+  /* 从 a[href] 反查「人」的行。两条教训写死在这里：
+     ① 不按 .profiles__user 数行——2026-10-05 ZCode 取证：只有首行带那层外壳，按它数只数到 1；
+     ② 去重必须按 **href**，不能按 closest 到的容器——每人有头像＋名字两条锚点，
+        这两条各自 closest 到不同的 profiles__user* 层，按容器去重会把 20 人数成 40 人（实测踩过）。
+     顺带覆盖 vanity href（/investinginchina 这类），修掉「只认数字 uid 会静默漏掉设域名博主」。 */
+  const norm = s => (s || '').replace(/[\s\u3000]+/g, ' ').trim();
+  const byHref = new Map();
+  for (const a of document.querySelectorAll('a[href]')) {
+    const href = a.getAttribute('href') || '';
+    if (!/^\/(?:\d+|[A-Za-z][\w.-]*)$/.test(href)) continue;
+    if (/^\/(?:u|S|k|b|today|hq|center|about|snb|law|edu|verify|check|my|login|register|c)(?:\/|$)/i.test(href)) continue;
+    if (byHref.has(href)) continue;
+    const row = a.closest('.profiles__user__card') || a.closest('[class*=profiles__user]') || a.parentElement;
+    const txt = row ? (row.innerText || '') : '';
+    const name = norm(a.innerText) || (txt.split('\n').map(norm).filter(Boolean)[0] || '');
+    if (!name) continue;
+    byHref.set(href, { i: byHref.size, name: name.slice(0, 30), href: href,
+                       uid: /^\/\d+$/.test(href) ? href.slice(1) : null });
+  }
+  return [...byHref.values()];
+}"""
+
+# 关注列表「下一页」的确切形态没实测过，三种写法都找一遍，命中就打标记供真点击
+JS_MARK_FOLLOW_NEXT = r"""() => {
+  document.querySelectorAll('[data-zc-fnext]').forEach(el => el.removeAttribute('data-zc-fnext'));
+  const cand = document.querySelector('a.pagination__next')
+    || [...document.querySelectorAll('a,button,span')].find(el =>
+         /^(下一页|下页|>)$/.test((el.textContent || '').trim()) && el.offsetWidth > 0);
+  if (!cand) return false;
+  cand.setAttribute('data-zc-fnext', '1');
+  return true;
 }"""
 
 
@@ -311,24 +335,31 @@ def visit_via_tab(bridge, page, selectors, script, settle_ms=1800):
     return None, 'no-anchor'
 
 
-def friends_rows(page, want_name=None, rounds=12, gap_ms=1800):
-    """轮询读关注列表。列表是 AJAX 渲染的：冷空间首开常只有占位行（10-05 实测 1 行就判
-    「没这个人」退出过）。命中 want_name 立刻返回；否则等行数**连续三轮不变且非空**
-    才判「渲染完了」。⚠ 比的是上一轮行数，不是稳定轮数计数器。"""
-    rows, prev_n, stable = [], -1, 0
-    for _ in range(rounds):
-        page.wait_for_timeout(gap_ms)
-        rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
-        if want_name and any(r.get('name') == want_name for r in rows):
+def friends_rows(page, want_name=None, max_pages=6, settle_ms=2600):
+    """枚举关注列表，**会翻页**：实测每页只渲染 20 人而关注共 44 位，目标常在第二页之后
+    （i知否 就是第 1 页找不到、旧代码因此直接判「没这个人」）。
+    跨页按 href 去重累加；给了 want_name 找到即返，不浪费后面的页。
+    列表是 AJAX 渲染，冷空间首开常只有占位行，所以每页先等再读。"""
+    acc = {}
+    pg = 0
+    for pg in range(max_pages):
+        page.wait_for_timeout(settle_ms if pg == 0 else 2200)
+        for r in (page.evaluate(JS_FOLLOW_ROWS, None) or []):
+            acc.setdefault(r['href'], r)
+        rows = list(acc.values())
+        for i, r in enumerate(rows):
+            r['i'] = i
+        if want_name and any(r['name'] == want_name for r in rows):
             return rows
-        stable = stable + 1 if (rows and len(rows) == prev_n) else 0
-        prev_n = len(rows)
-        if stable >= 3:
+        if not page.evaluate(JS_MARK_FOLLOW_NEXT, None):
+            break                                   # 没有「下一页」＝已到末页
+        if not real_click(page, selector='[data-zc-fnext]'):
             break
-    return rows
+    return list(acc.values())
 
 
 def enter_profile_by_click(ck, page, uid, blogger, fail=sys.exit):
+    """uid 传 None = 只求「解析出落地 uid」并返回（--follow 遇到 vanity 行时先要拿到 uid）。"""
     """进某位博主主页，全程真点击。找不到 / 落地 uid 对不上 → fail() 退出，
     **不静默回落 goto**：回落等于把最大那块风控面留着，而且会静默采错人。
     为什么按显示名：列表里的 href 常是自定义域名（实测 /investinginchina、/forcode、/ericwarn），
@@ -343,13 +374,20 @@ def enter_profile_by_click(ck, page, uid, blogger, fail=sys.exit):
     rows = friends_rows(page, want_name=blogger)
     hit = [r for r in rows if r.get('name') == blogger]
     if not hit:
-        fail(f'入站失败：关注列表 {len(rows)} 行里没有「{blogger}」；不回落 goto')
-    if not ck(selector='a.avatar', within='.profiles__user', nth=hit[0]['i'], settle_ms=3000, trail=3):
+        fail(f'入站失败：关注列表翻页后累计 {len(rows)} 人仍没有「{blogger}」；不回落 goto')
+    # 按 href 精确点，不用 nth+外壳选择器：新渲染形态下只有首行有外壳，按序号点会点空
+    if not ck(selector=f'a[href="{hit[0]["href"]}"', settle_ms=3000, trail=3):
         fail(f'入站失败：「{blogger}」那一行点不动（href={hit[0]["href"]}）；不回落 goto')
     landed = re.search(r'/u/(\d+)', page.url or '')
-    if not landed or landed.group(1) != str(uid):
+    got = landed.group(1) if landed else None
+    if uid is None:
+        if not got:
+            fail(f'入站失败：点「{blogger}」后落地 URL 里没有 uid（{page.url}）')
+        return got
+    if got != str(uid):
         fail(f'入站失败：点「{blogger}」落到 {page.url}，uid 对不上目标 {uid}（重名或列表错位）；不回落 goto')
     page.wait_for_timeout(1200)
+    return got
 
 
 # 关注列表枚举（2026-10-03 关注提炼，用户指定入口=雪球关注列表）：
@@ -470,7 +508,12 @@ class Collector:
         """入站：首页 1 次 goto → 真点「关注 N」→ 按显示名真点该博主 → 校验落地 uid。
         实现与 xq_profile_collect 共用上面那一份（见 enter_profile_by_click）。"""
         page = self.bridge.main_page
-        enter_profile_by_click(lambda **kw: self._ck(page, **kw), page, self.uid, self.blogger)
+        if not self.uid:
+            # vanity 行（自定义域名）枚举时拿不到 uid：先点进去把落地 uid 解析出来再扫
+            self.uid = enter_profile_by_click(lambda **kw: self._ck(page, **kw), page, None, self.blogger)
+            print(f'[follow] 「{self.blogger}」uid 解析为 {self.uid}', flush=True)
+        else:
+            enter_profile_by_click(lambda **kw: self._ck(page, **kw), page, self.uid, self.blogger)
         return page
 
     @staticmethod
@@ -726,8 +769,12 @@ def follow_mode(args):
             print('[follow] 首页找不到「关注 N」入口（登录态掉了或页面改版）；不回落 goto', flush=True)
             users = []
         else:
-            friends_rows(page)                      # 等 AJAX 渲染完（冷空间首开常只有占位行）
-            users = page.evaluate(JS_FOLLOW_LIST, None)
+            rows = friends_rows(page)               # 等 AJAX 渲染完（冷空间首开常只有占位行）
+            users = [{'uid': r.get('uid') or '', 'name': r['name'], 'href': r['href']} for r in rows]
+            n_vanity = sum(1 for u in users if not u['uid'])
+            if n_vanity:
+                print(f'[follow] 其中 {n_vanity} 位是自定义域名（无数字 uid），'
+                      f'跑之前先点进去解析 uid——旧版 JS_FOLLOW_LIST 会**静默跳过**这些人', flush=True)
         print(f'[follow] 关注列表 {len(users)} 人', flush=True)
     finally:
         bridge.stop()
@@ -736,13 +783,15 @@ def follow_mode(args):
         sys.exit(3)
     outs = []
     for u in users:
+        # vanity 行枚举时无 uid，回补点这一轮只能退到 --stop_before 兜底（跑完会回填 u['uid']）
         cutoff = cutoffs.get(u['uid']) or args.stop_before
         path = args.out or os.path.expanduser(
             f"~/.cache/xueqiu-spyder/out/dialog/follow-{u['name'] or u['uid']}-{dt.date.today():%Y%m%d}.json")
         print(f'[follow] → {u["name"]}({u["uid"]}) 回补点={cutoff or "无"}', flush=True)
-        c = Collector(u['uid'], u['name'])
+        c = Collector(u['uid'] or None, u['name'])
         # 锚定与原帖全量已在 run() 里**每页收尾**做完（去 goto 化：出了那一页卡上就没锚点了）
         c.run(args.pages, stop_before=cutoff, full_root=args.full_root)
+        u['uid'] = c.uid                     # vanity 行回填解析出来的 uid（供日志与产物名用）
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             _json.dump(c.out, f, ensure_ascii=False, indent=1)
