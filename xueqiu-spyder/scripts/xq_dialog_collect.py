@@ -16,8 +16,10 @@ import argparse
 import datetime as dt
 import json
 import os
+import random
 import re
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ego_browser import BridgeError, EgoBridge  # noqa: E402
@@ -187,6 +189,23 @@ JS_ROOT_FULL = "() => {" + JS_IMG + r"""
            imgs: __imgs(art, art) };
 }"""
 
+# 给「当前卡的展开控件」打标记，真点击由 Python 侧发（JS_EXPAND 的 a.click() 是合成事件，已退役）。
+# 判据两条：① 排除引用卡 blockquote 里那个（同 JS_EXPAND 口径）；② 文案必须是「展开」——
+# 展开成功后同一个控件变「收起」，不加这条会一直判成残留、白重点两次。
+JS_MARK_EXPAND = """() => {
+  document.querySelectorAll('[data-zc-exp]').forEach(el => el.removeAttribute('data-zc-exp'));
+  const t = document.querySelector('[data-zc-dlg]');
+  if (!t) return false;
+  const card = t.querySelector('blockquote');
+  const a = [...t.querySelectorAll('a')].find(x =>
+    (x.className || '').toString().includes('timeline__expand__control')
+    && x.offsetWidth > 0 && /展开/.test(x.textContent || '')
+    && (card ? !card.contains(x) : true));
+  if (!a) return false;
+  a.setAttribute('data-zc-exp', '1');
+  return true;
+}"""
+
 JS_OPEN_DLG = """() => {
   const t = document.querySelector('[data-zc-dlg]');
   const b = t && t.querySelector('a.dialogue__btn');
@@ -226,7 +245,7 @@ JS_NEXT_PAGE = """() => {
 #   **别在两边各写一遍**——入站分叉是最难查的那类漂移（一条会校验 uid、一条不会）。
 #   ck 由调用方传（各采集器的 _ck 自带 trail / strip_target 缺省）。
 FRIENDS_A = "a[href='/center/#/friends']"
-JS_FOLLOW_ROWS = """() => {
+JS_FOLLOW_ROWS = r"""() => {
   const out = [];
   document.querySelectorAll('.profiles__user').forEach((c, i) => {
     const a = c.querySelector('a.avatar') || c.querySelector('a[href]');
@@ -400,6 +419,32 @@ class Collector:
         self.root_queue = set()      # 已排队的原帖 url（跨页去重）
         self.pending_roots = []      # 本页刚锚出 root.url、等着抓全量的串
 
+    def _expand(self, page):
+        """真点击「展开」：标记→真点→残留则 wheel 滚出滚回再点一次（懒挂载兜底）。"""
+        clicked = False
+        for attempt in (1, 2):
+            if attempt == 2:
+                page.wheel(dy=-900)
+                page.wait_for_timeout(250)
+                page.wheel(dy=900, wait_ms=400)
+            if not page.evaluate(JS_MARK_EXPAND, None):
+                break
+            if not self._ck(page, selector='[data-zc-exp]', settle_ms=900):
+                break
+            clicked = True
+            if not page.evaluate(JS_MARK_EXPAND, None):
+                break
+        return clicked
+
+    def _close_modal(self, page):
+        """真点击关弹窗；选择器依次试（同 JS_MODAL_CLOSE 那条兜底链的三种形态）。"""
+        for sel in ('.modal.modal__comment .modal__hd [class*=close]',
+                    '.modal.modal__comment a[class*=close]',
+                    '.modal.modal__comment [class*=modal__close]'):
+            if self._ck(page, selector=sel):
+                return True
+        return False
+
     def _flush_page(self, page_threads, full_root):
         """本页收尾：锚点还在这页的卡上，先补锚定（会往 pending_roots 追加），再抓原帖全量。
         顺序不能反——锚出来的新原帖也得在这一页被抓掉，出了这页就点不到了。"""
@@ -535,7 +580,7 @@ class Collector:
     def extract_thread(self, page, i):
         if not page.evaluate(JS_MARK, {'i': i}):
             return None
-        page.evaluate(JS_EXPAND, None)
+        self._expand(page)
         page.wait_for_timeout(900)
         meta = page.evaluate(JS_ITEM_META, {'uid': self.uid})
         return self._extract_chain(page, meta)
@@ -546,8 +591,10 @@ class Collector:
         if not meta['hasDlg']:
             self.out['origs_seen'] += 1
             return {'orig': meta.get('url')}
-        page.evaluate(JS_OPEN_DLG, None)
-        page.wait_for_timeout(1400)
+        # 「查看对话」是 javascript:;（没有 href），但仍是真元素，照样用真鼠标点它
+        if not self._ck(page, selector='a.dialogue__btn', within='[data-zc-dlg]', settle_ms=1400):
+            return None
+        prev, stable = -1, 0
         prev, stable = -1, 0
         while stable < 3:
             n = page.evaluate(JS_MODAL_STABLE, None)
@@ -557,10 +604,10 @@ class Collector:
             else:
                 stable, prev = 0, n
         nodes = page.evaluate(JS_NODES, None)
-        closed = page.evaluate(JS_MODAL_CLOSE, None)
+        closed = self._close_modal(page)
         page.wait_for_timeout(600)
         if page.evaluate(JS_MODAL_OPEN_Q, None):
-            page.evaluate(JS_MODAL_CLOSE, None)
+            self._close_modal(page)
             page.wait_for_timeout(500)
         for seq, nd in enumerate(nodes):
             nd['seq'] = seq
@@ -644,7 +691,7 @@ class Collector:
                 self._flush_page(page_threads, full_root)
                 out_pages = pg
                 if pg < pages:
-                    if not page.evaluate(JS_NEXT_PAGE, None):
+                    if not real_click(page, selector='a.pagination__next', settle_ms=1000):
                         print('[next] 无下一页，提前收', flush=True)
                         break
                     page.wait_for_timeout(2400)

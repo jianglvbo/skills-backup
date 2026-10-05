@@ -6,7 +6,9 @@
 ## 定稿流程（四步，全程页面点击，不裸调 API）
 
 1. **主页找回复帖**：博主主页时间线找「回复@某人」帖 → 点正文展开
-   - 控件 `a.timeline__expand__control`；页面存在大量隐藏同名模板（offsetWidth=0），只点可见那个；稳妥做法＝目标项打标记后按真实坐标点击
+   - 控件 `a.timeline__expand__control`；页面存在大量隐藏同名模板（offsetWidth=0），只点可见那个；
+     做法＝目标项打 `data-zc-exp` 标记后**真点击**（桥的 `click`，CDP Input 域、isTrusted=true）。
+     ⚠ 展开成功后同一控件变「收起」，标记判据里必须带「文案含展开」，否则残留检测会误判成没展开
 2. **查看对话拿全链**：展开后出现「查看对话」（`a.dialogue__btn`，正文展开后才出现）→ 点开 `.modal.modal__comment` 弹窗，滚动加载 `.comment__item` 至条数稳定
    - 弹窗直接给出根帖→当前回复完整问答链，**这是拿整套对话的最快入口**
    - 链序＝时间升序，平铺、无缩进、无「回复@某人」前缀
@@ -39,7 +41,12 @@
 
 - **采集器 `scripts/xq_dialog_collect.py`**（本 skill 内，ego 通道，前置＝ego lite 开着且已登录雪球）：
   - 时间线模式（缺省）：`--blogger <名> --pages N`，翻页止于 `--stop-before <时间>`（时间感知止损，避免旧帖盲翻）
-  - **原帖全量抓取 `--full-root`（2026-10-03 卡片重构）**：对每条串 goto **原帖页**（root_url）抓完整正文（保留段落、不截断）+时间（`.article__author time`）+形态+图片 → `root.full`；落库侧写 post_history `post_kind_code='origin'` 行并回填 `xq_thread.root_ph_id`（同根兄弟串共享同 id）。与 root_content 脏写事故不矛盾：那里错在回复帖页抓正文，这里 goto 的就是原帖页
+  - **原帖全量抓取 `--full-root`（2026-10-05 去 goto 化）**：对每条串**真点击引用卡里的被引链接开新标签**，
+    在原帖页抓完整正文（保留段落、不截断）+时间（`.article__author time`）+形态+图片 → `root.full`，抓完即关标签；
+    落库侧写 post_history `post_kind_code='origin'` 行并回填 `xq_thread.root_ph_id`（同根兄弟串共享同 id）。
+    锚点两条形态：普通帖「 · 讨论 N」（href 结尾 `#comment`）、长文引用卡标题链接。
+    **必须在每页收尾做**（`_flush_page`）：出了那一页卡上就没锚点了——旧版靠 goto 才敢拖到全场结束。
+    与 root_content 脏写事故不矛盾：那里错在回复帖页抓正文，这里抓的是原帖页
   - **关注采集 `--follow`（2026-10-03 关注提炼）**：从雪球关注列表（首页左栏「关注 N」→ /center/#/friends，`.profiles__user`）逐博主跑完整链路；回补点=`--cutoffs` JSON（{uid: YYYY-MM-DD}，由 post_history 最早已采日期生成）或 `--stop-before` 兜底；每位博主独立产物 JSON。**分工（用户定稿）：关注流为主、旧 feed 流备用（首页提炼）**
   - **URL 直达补采已删除（2026-10-02 用户定稿）**：`--urls`/`--keywords` 与搜索点击→详情页那条补采通路整体移除，采集器不再有「给一个 URL 跳进去取」的入口
   - 韧性：错误分类（代码性错误不重启桥）、单条目重试上限 2 次跳过、翻页空转止损；带病完成 `degraded` exit 3（≠失败，产物仍可用）
