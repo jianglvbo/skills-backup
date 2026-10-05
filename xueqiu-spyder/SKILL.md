@@ -68,7 +68,7 @@ python3 "$SPYDER/scripts/xq_sync_console.py" --apply    # 确认后落地
 |:---|:---|
 | 日常增量（全部已关注博主，隔 ≤3 天） | **feed**（**自带配图与对话串**，2026-10-02 用户定稿：每轮采集都含这两样，落库时帖子走 import-post-history.js、对话串 JSON 走 import-thread.js，两者都做完才算采集完成） |
 | 首采 / 深窗口（>3 天）/ 跨周补采 / 书签未翻到 | user |
-| **重采/补历史窗口**（要求页面肉眼可见的滚动+点击，2026-10-05 用户定稿） | `scripts/xq_profile_collect.py`：主页逐条滚动→点展开→点「下一页」；回复帖开弹窗拿串、原帖全量、专栏点进详情页；一次跑出帖子集 md + 对话串 JSON 两份产物 |
+| **重采/补历史窗口**（要求页面肉眼可见的滚动+点击，2026-10-05 用户定稿） | `scripts/xq_profile_collect.py`：入站走「首页→点关注列表→点博主」，主页真滚轮逐条滚动→真点展开→真点「下一页」；回复帖真点「查看对话」开弹窗拿串；详情页/原帖**真点击开新标签抓完就关**（不用 back：深页掉页 5/5）；全场只剩入站 1 次 goto。一次跑出帖子集 md + 对话串 JSON 两份产物 |
 | **新博主首采**（半年回溯 + 热门 5 页，2026-09-28 用户定） | user `--hot-pages 5`（先走 profile 档案落库） |
 | feed 完成后的缺帖抽查 | user（轮转抽 1/5~1/7 未露面博主翻一页核对） |
 
@@ -88,8 +88,10 @@ $PY "$SPYDER/main.py" feed --tab follow --limit 50 \
 ### 第五步：user 模式采集（兜底）
 
 > **重采/深窗口优先走 `scripts/xq_profile_collect.py`**（上一行决策表的「重采」档）：它做真实页面操作
-> （滚动+展开+点翻页，ego lite 里肉眼可见），而 `main.py user` 是页面上下文里的签名请求——页面不动，
-> 不满足「要看到在操作」的用户口径。细则与用法 → `references/execution-guide.md`「重采 UI 采集」。
+> （**真鼠标输入**：滚动+展开+点翻页+点击开新标签，ego lite 里肉眼可见；不是 `evaluate` 里的
+> `el.click()` 合成事件，也不是地址栏直达），而 `main.py user` 是页面上下文里的签名请求——页面不动，
+> 不满足「要看到在操作」的用户口径。输入形态的四条纪律（禁用合成点击 / 禁用 back 回访 /
+> `strip_target` 取舍 / `trail` 成本）与用法 → `references/execution-guide.md`「重采 UI 采集」。
 
 ```bash
 NOW=$(date "+%Y-%m-%dT%H:%M:%S")

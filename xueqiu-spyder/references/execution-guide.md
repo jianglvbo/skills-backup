@@ -138,18 +138,41 @@ $PY "$SPYDER/scripts/xq_profile_collect.py" {uid} \
 
 - **一次翻页两份产物**：`雪球采集-{博主}-{日期}.md`（import-post-history.js 契约）＋
   `雪球对话串-{博主}-{日期}.json`（import-thread.js 契约，root.full=原帖全量）——重采按 md → json 顺序先后落库。
-- 机制：逐条 `scrollIntoView`（可见滚动）→ 点「展开」→ 抽正文/图/时间/引用卡（图只走「图：」行不进正文，
-  转帖引用卡结构化为「回复内容」块）→ 回复帖开弹窗收链 → 翻页点 `a.pagination__next`；
-  专栏帖与展开失败帖在收尾**点进详情页**补全文+权威时间（间隔吃 `XUEQIU_PAGE_DELAY_RANGE` 与 DETAIL_* 档）。
+- 机制（2026-10-05 去 goto 化定稿）：首页 1 次 goto（**全场唯一一次直达**）→ 真点「关注 N」进关注列表
+  → 按显示名真点该博主进主页（落地校验 uid）→ 真滚轮逐条滚动 → 真点「展开」→ 抽正文/图/时间/引用卡
+  （图只走「图：」行不进正文，转帖引用卡结构化为「回复内容」块）→ 回复帖真点「查看对话」开弹窗收链
+  → 真点 `a.pagination__next` 翻页；专栏帖与展开失败帖**真点击开新标签**补全文+权威时间，抓完即关
+  （间隔吃 `XUEQIU_PAGE_DELAY_RANGE` 与 DETAIL_* 档）。
+- **输入一律是真的**（桥的 `click / clickTab / wheel`，走 CDP Input 域，事件 `isTrusted=true`）：
+  - ⚠ **不要用 `evaluate` 里的 `el.click()` 替直达**——那是 JS 合成事件（无 mousemove/hover/pointer 序列），
+    风控上比 goto 更显眼，等于换一种假动作。
+  - ⚠ **不要用「点进去再 `back()`」做回访循环**——实测深页 back 掉页率 5/5（第 3 页进详情，back 回来落在
+    第 1 页，卡上锚点全没了）。正确形态是 `clickTab`：卡片那行时间的 `<a>` 本就带 `target="_blank"`，
+    真点击开新标签 → `task.tabs()` 认新增那张 → 在那页 evaluate → `close()`，主页面全程不动。
+  - ⚠ 真点击**必须摘/保留 target 要想清楚**：普通点击用 `strip_target=True`（否则开新标签撞 ego 8 页上限），
+    只有 `clickTab` 故意保留 target。
+  - 成本：单次真点击净 ~0.5s（`mouseMoved` 那一趟 330–950ms 是大头，`press/release` 只 ~11ms），
+    鼠标轨迹分段数 `trail` 就是成本（`trail=3` 要 1.9s）→ **批量环节固定 `trail=1`**，
+    每场只有入站那两次点击用 3。
+- **单页卡住不要升级成整桥重启**：实测 `page.evaluate` 15s 超时（`Page is still unresponsive`）是间歇性的，
+  而 `recover()` 重启可能 90s 超时把整批带走。只标失败继续，连续 2 次才中止本页那一趟。
+- 能力自查：ego 的 Page **不是 Playwright Page**（没有 `locator` / `goBack`）。要看它到底有什么，
+  跑桥命令 `pageApi`（`bridge.call('pageApi', page='p1', probe=True)`）——它会列方法表、试选项校验、
+  探 CDP 白名单。`task` 上有 `tabs()/page()/adopt()/newPage()`，**没有** `listTabs()`。
 - **时间感知止损**：条目时间早于 `--stop-before` 即停（时间线由新到旧）；置顶帖不进扫描。
   JS_POST_META/时间解析复用 feed 的 `derive_time` 口径，流内相对时间标 `（流内推算）`。
 - **⚠ 详情页时间 = UTC（2026-10-05 首跑实踩）**：帖子详情页 `.article__author time` 的 `datetime`
   属性是 UTC ISO（带 T），直接当北京时间落库整体 −8h、跨天错日。已在 `JS_ROOT_FULL`（源头转北京）、
   `xq_profile_collect.md_body`（遇 T 兜底 +8h）、`import-thread.js parseTime`（认 T/Z）三处收口；
   改采集输出格式前先想这条。流内时间线锚文本是平台显示时间（北京），无需换算。
-- 实测量级（metalslime 高产博主首跑）：40 页 ≈ 800 帖 / 全程 ≈ 2.2h（页间 8~15s + 约半数回复帖开弹窗
-  + ~14% 帖子转详情页补全 + 原帖全量 185 次 goto）；期间风控有 2 段冷却窗口（连续「未取到全文/无正文容器」
-  后自愈），被拦帖按设计标摘要留给下次。
+- **`--blogger {昵称}` 是必需的**（不是只用于文件名）：入站走「关注列表按显示名点击」，
+  列表里的 href 常是自定义域名（实测 `/investinginchina`、`/forcode`），**按 uid 匹配 href 会认不出来**；
+  点进去才 302 到 `/u/<uid>`，落地后再校验 uid，对不上就退出（不静默回落 goto，防止采错人）。
+- 实测量级（**旧 goto 形态**的 metalslime 首跑，作对照基线）：40 页 ≈ 800 帖 / 全程 ≈ 2.2h
+  （页间 8~15s + 约半数回复帖开弹窗 + ~14% 帖子转详情页补全 + 原帖全量 185 次 goto）；
+  期间风控有 2 段冷却窗口（连续「未取到全文/无正文容器」后自愈），被拦帖按设计标摘要留给下次。
+  **新形态还没跑过整场**，只有 2 页烟测：`posts=38 全文 38/摘要 0`、原帖 3/3、0 卡住；
+  整场时长会因每次真点击 +0.5s 而上升，首次全量跑要盯着点。
 - 退出码：0=完成；3=degraded（有帖展开失败/原帖没抓到——产物仍可用，缺口交审计列清单）。
 - **重采夜批纪律**：落库后必须审计（帖数对账/抽帖验段落与图/串完整性/窗外误伤），通过才推进游标；
   对话串采集器同源的 `--stop-before` 失效 bug 已修（时间从时间线锚文本取，不再拿 URL 当时间）。
