@@ -69,16 +69,6 @@ JS_SNAP = r"""() => {
                         .filter(a => a.offsetWidth > 0).length };
 }"""
 
-JS_FOLLOW_ROWS = r"""() => {
-  const out = [];
-  document.querySelectorAll('.profiles__user').forEach((c, i) => {
-    const a = c.querySelector('a.avatar') || c.querySelector('a[href]');
-    out.push({ i: i, name: (c.innerText || '').split('\n')[0].trim(),
-               href: a ? a.getAttribute('href') : null });
-  });
-  return out;
-}"""
-
 JS_CARD_TEXT = r"""(arg) => {
   const c = [...document.querySelectorAll('.timeline__item')][arg.i];
   if (!c) return null;
@@ -147,13 +137,14 @@ def main():
             rows = friends_rows(page, want_name=args.name)
             hit = [r for r in rows if r.get('name') == args.name]
             if not hit:
-                raise RuntimeError(f'关注列表 {len(rows)} 行里没有「{args.name}」；样本={[r["name"] for r in rows[:8]]}')
+                raise RuntimeError(f'关注列表翻页后 {len(rows)} 人里没有「{args.name}」；样本={[r["name"] for r in rows[:8]]}')
             href = hit[0].get('href') or ''
             numeric = bool(re.match(r'^/(\d+)$', href))
-            verdict['follow_href'] = (f'{href} → ' + ('数字 uid，现有 JS_FOLLOW_LIST 能收'
-                                     if numeric else '自定义域名，**现有 JS_FOLLOW_LIST 会静默漏掉这一行**'))
-            # within 必给：nth 是「第几行」，不写 within 就变成全页第 n 个 a.avatar（实测点错人）
-            ck(selector='a.avatar', within='.profiles__user', nth=hit[0]['i'], strip_target=True)
+            # 共用枚举已同时收数字 uid 与 vanity（/investinginchina 这类），不再有「静默漏人」那档
+            verdict['follow_href'] = f'{href} → ' + ('数字 uid' if numeric else '自定义域名 vanity')
+            # 按 href 精确点（§七 口径，与采集器 enter_profile_by_click 同款）：
+            # 新列表形态下 .profiles__user 外壳只剩首行，within+nth 必点空
+            ck(selector=f'a[href="{href}"', strip_target=True)
             settle(3000)
             u = page.url
             landed = uid_of(u)

@@ -390,21 +390,6 @@ def enter_profile_by_click(ck, page, uid, blogger, fail=sys.exit):
     return got
 
 
-# 关注列表枚举（2026-10-03 关注提炼，用户指定入口=雪球关注列表）：
-#   首页左栏「关注 N」→ /center/#/friends；列表项=.profiles__user（a.avatar[href=/uid]）
-JS_FOLLOW_LIST = """() => {
-  const out = [];
-  for (const c of document.querySelectorAll('.profiles__user')) {
-    const a = c.querySelector('a.avatar');
-    const href = a ? (a.getAttribute('href') || '') : '';
-    const m = href.match(/^\\/(\\d+)$/);
-    if (!m) continue;
-    const lines = (c.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-    out.push({ uid: m[1], name: (lines[0] || '').slice(0, 30) });
-  }
-  return out;
-}"""
-
 JS_NODES = "() => {" + JS_IMG + """
   const out = [];
   for (const it of document.querySelectorAll('.modal.modal__comment .comment__item')) {
@@ -774,7 +759,7 @@ def follow_mode(args):
             n_vanity = sum(1 for u in users if not u['uid'])
             if n_vanity:
                 print(f'[follow] 其中 {n_vanity} 位是自定义域名（无数字 uid），'
-                      f'跑之前先点进去解析 uid——旧版 JS_FOLLOW_LIST 会**静默跳过**这些人', flush=True)
+                      f'跑之前先点进去解析 uid（旧枚举只认 /^\/\d+$/，会静默跳过这些人）', flush=True)
         print(f'[follow] 关注列表 {len(users)} 人', flush=True)
     finally:
         bridge.stop()

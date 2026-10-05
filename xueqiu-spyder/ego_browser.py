@@ -429,8 +429,10 @@ class Page:
         """真鼠标点击（CDP Input 域，事件 isTrusted=true）。
         `selector` 与 `text` 二选一：text 给「展开 / 查看对话 / 下一页」这类没有稳定
         class 的控件（按可见文案找，取文案最短的那个元素）。
-        `within` + `nth`：**先按 nth 选中行**（如 `.profiles__user`），再在行内找 selector
-        ——不用它的话 nth 按全页计数，与行索引不对齐（实测会点到别人头上）。
+        `within` + `nth`：**先按 nth 选中行容器**，再在行内找 selector——不用它的话
+        nth 按全页计数，与行索引不对齐（实测会点到别人头上）。
+        ⚠ 行容器要选**每行都有**的那层：关注列表实测只有首行带 `.profiles__user` 外壳
+        （10-05 ZCode 取证），拿它当 within 按 nth 点必然点空——那里改成直接按 `a[href=...]` 点。
         回执 `ms` 是分段时间（locate / moved / press）；一次点击的净成本≈CDP 往返数，
         `trail` 是轨迹点数（默认 3，越大越像真人、越慢）。"""
         if not selector and not text:
