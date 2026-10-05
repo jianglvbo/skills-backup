@@ -34,6 +34,20 @@ from xq_dialog_collect import (  # noqa: E402
 ANCHOR_MS = int(time.time() * 1000)
 DWELL_MS = int(os.environ.get("XUEQIU_ITEM_DWELL_MS", "700"))
 
+_BARK = os.path.join(os.path.expanduser("~"), "Project/investment-dashboard/.agents/skills/bark/scripts/notify.py")
+
+
+def waf_bark(msg):
+    """疑似风控/滑块拦截的突发提醒（2026-10-05 用户要求：需要人过的验证 Bark 通知）。"""
+    try:
+        import subprocess
+        subprocess.Popen(
+            ["python3", _BARK, "--group", "investment-dashboard", "--level", "timeSensitive",
+             "--id", "xueqiu-slider", "雪球疑似风控拦截", msg],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
 # 主页时间线单帖抽取：正文/图/时间/形态信号/引用卡（图滤表情头像、去尺寸档，同 dialog JS_IMG 口径）
 JS_POST_META = r"""
 (arg) => {
@@ -322,6 +336,8 @@ class ProfileCollector:
             return
         print(f'[detail] 点进详情页补全 {len(todo)} 帖（专栏/展开失败）', flush=True)
         n_break = 0
+        miss_streak = 0
+        waf_barked = False
         for k, p in enumerate(todo):
             if n_break >= xqcfg.DETAIL_BREAK_N:
                 print(f'  [detail] 长歇 {xqcfg.DETAIL_BREAK_S}s', flush=True)
@@ -338,6 +354,11 @@ class ProfileCollector:
                 p['detail_failed'] = True
                 print(f"  [detail] 未取到全文 {p['url']}", flush=True)
                 self.degraded = True
+                miss_streak += 1
+                if miss_streak >= 4 and not waf_barked:
+                    waf_barked = True   # 连续取不到＝疑似滑块/风控页，Bark 提醒人看一眼（不停车）
+                    waf_bark(f'详情页连续 {miss_streak} 帖取不到正文（{self.blogger}），'
+                             f'疑似滑块/风控页——如果 ego lite 里有验证请你过一下，本批继续跑、过不去的标摘要留给下次')
 
     def _fix_roots(self):
         need = [t for t in self.threads if not (t.get('root') or {}).get('url')]
@@ -370,11 +391,14 @@ class ProfileCollector:
         if not need:
             return
         print(f'[full-root] 原帖全量抓取 {len(need)} 条（去重后）', flush=True)
+        miss_streak = 0
+        waf_barked = False
         for t in need:
             ru = t['root']['url']
             info = self._detail_visit(ru)
             time.sleep(xqcfg.page_delay())
             if info and info.get('text'):
+                miss_streak = 0
                 full = {'text': info['text'], 'time': info['time'], 'form': info['form'],
                         'title': info.get('title') or '', 'imgs': info.get('imgs') or []}
                 for t2 in self.threads:
@@ -382,8 +406,13 @@ class ProfileCollector:
                         t2['root']['full'] = full
                 print(f"  [full] {ru[-12:]} {len(info['text'])} 字 · 图{len(full['imgs'])}", flush=True)
             else:
+                miss_streak += 1
                 print(f'  [full] 无正文容器 {ru}', flush=True)
                 self.degraded = True
+                if miss_streak >= 4 and not waf_barked:
+                    waf_barked = True   # 连续无正文＝疑似滑块/风控冷却窗，Bark 提醒（不停车）
+                    waf_bark(f'原帖页连续 {miss_streak} 条无正文容器（{self.blogger}），'
+                             f'疑似滑块/风控冷却——如果 ego lite 里有验证请你过一下；本批继续，缺口留快照')
 
     # ── 产物 ──────────────────────────────────────────────────────────────
     def summary(self):

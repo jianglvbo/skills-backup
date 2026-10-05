@@ -349,6 +349,16 @@ class EgoBridge:
         可选项，是**唯一正确的姿势**：交接 → 等 → 拿回控制权 → 采集方重试本页。
         返回 True=控制权已拿回；False/异常=超时或失败（调用方按 WAF 处理）。
         """
+        # 用户可能不在屏幕前：交接即 Bark（2026-10-05 用户要求「遇到需要我过滑块的情况 Bark 通知」）
+        try:
+            import subprocess
+            subprocess.Popen(
+                ["python3", "/Users/jianglb/Project/investment-dashboard/.agents/skills/bark/scripts/notify.py",
+                 "--group", "investment-dashboard", "--level", "timeSensitive", "--id", "xueqiu-slider",
+                 "雪球滑块验证", "需要你在 ego lite 过一下滑块（等 15 分钟），过完自动续跑"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         res = self.call("handoff", timeout=wait_ms / 1000 + 30, waitMs=wait_ms)
         return bool(res and res.get("regained"))
 
