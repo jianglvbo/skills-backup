@@ -810,6 +810,11 @@ def main():
 
     path = a.out or os.path.expanduser(
         f"~/.cache/xueqiu-spyder/out/dialog/雪球对话串-{a.blogger or a.uid}-{dt.date.today():%Y%m%d}.json")
+    # --out 是输出**文件路径**，不是目录（profile_collect 的 --out 才是目录——两个采集器
+    # 同名参数语义不同，10-05 回归实测传目录 IsADirectoryError 且报错难定位，这里前置拦）
+    if os.path.isdir(path):
+        sys.exit(f'--out 需要文件路径（不是目录）：{path}\n'
+                 f'  例：--out ~/.cache/xueqiu-spyder/out/dialog/雪球对话串-{a.blogger or a.uid}.json')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(c.out, f, ensure_ascii=False, indent=1)
