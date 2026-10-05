@@ -274,6 +274,7 @@ class ProfileCollector:
     def _expand(self, page):
         """真点击「展开」，带懒挂载兜底与残留重点（v1 §3.5：展开失败率决定 G2 的量级）。"""
         clicked = False
+        had_control = False
         for attempt in (1, 2):
             if attempt == 2:
                 # 滚出去再滚回来，强制这张卡重新布局一次（懒挂载没等到时的兜底）
@@ -281,14 +282,18 @@ class ProfileCollector:
                 page.wait_for_timeout(250)
                 page.wheel(dy=900, wait_ms=400)
             if not page.evaluate(JS_MARK_EXPAND, None):
-                break
+                break                       # 没有「可展开」的控件（可能是引用卡里的、或已是「收起」态）
+            had_control = True
             if not self._ck(page, selector='[data-zc-exp]', settle_ms=900):
                 break
             clicked = True
             if not page.evaluate(JS_MARK_EXPAND, None):
                 break                       # 「展开」没了 = 展开成功
             print('    [expand] 展开控件还在，滚出滚回再点一次', flush=True)
-        return clicked
+        # 返回 (点开了, 本来有可展开控件)：计数必须用同一个严判据，
+        # 别拿 JS_POST_META 的 expandPresent（只看 class，「收起」也算）去配对，
+        # 那会把「本来没东西可展开」记成展开失败（10-05 i知否 报 3/3 失败 100% 即此假信号）
+        return clicked, had_control
 
     # ── 对话串（复用 dialog 采集器流程：开弹窗→滚到稳定→收节点→关） ─────────
     def _close_modal(self, page):
@@ -358,15 +363,15 @@ class ProfileCollector:
                         if not page.evaluate(JS_MARK, {'i': i}):
                             break
                         page.wait_for_timeout(DWELL_MS)
-                        clicked = self._expand(page)
+                        clicked, had_x = self._expand(page)
                         if clicked:
                             page.wait_for_timeout(900)
                         meta = page.evaluate(JS_POST_META, {'uid': self.uid})
                         if not meta:
                             i += 1
                             continue
-                        if meta.get('expandPresent'):
-                            # 与 v1 同口径（108/797＝14% 那个数）：有展开控件却没点开的才算失败
+                        if had_x:
+                            # 与 v1 同口径（108/797＝14%）：判据必须与 _expand 同一个（严判据）
                             self.expand_present += 1
                             if not clicked:
                                 self.expand_failed += 1
