@@ -224,6 +224,40 @@ def main():
             return f"栈 {r['index']}/{r['depth']} 详情 …{detail[-20:]} 回来卡片数={after['n']} ⇒ {verdict['v2']}"
         step('V2prime 第 N 页进详情后 back 落点', s8)
 
+        # S8b 连续多次「进详情 → back」的**掉页率**。必须自己先翻回深页：
+        #      在第 1 页测是假阳性——掉回第 1 页和保留第 1 页看起来一模一样（10-05 第一版就栽在这）。
+        def s8b():
+            for _ in range(args.pages):
+                page.wheel(dy=2400, wait_ms=400)
+                settle(150)
+                page.click(selector='a.pagination__next', nth=0, strip_target=True)
+                settle(2400)
+            base = page.evaluate(JS_SNAP, None)
+            lines = []
+            for k in range(5):
+                snap_before = page.evaluate(JS_SNAP, None)
+                ck(selector=own_a, nth=k % 3, strip_target=True)
+                settle(2200)
+                on_detail = f'/u/{target_uid}' not in page.url
+                page.back(settle_ms=1500)
+                after = page.evaluate(JS_SNAP, None)
+                kept = after['first'] == snap_before['first'] and after['n'] == snap_before['n']
+                same_first = '是' if after['first'] == snap_before['first'] else '否'
+                lines.append(f'#{k + 1} 进详情={on_detail} 卡片数 {snap_before["n"]}→{after["n"]} '
+                             f'首卡同={same_first} ⇒ {"保页位" if kept else "掉页"}')
+                if not kept:      # 掉页后重新翻回深页，下一轮才是同条件对比
+                    for _ in range(args.pages):
+                        page.wheel(dy=2400, wait_ms=400)
+                        settle(150)
+                        page.click(selector='a.pagination__next', nth=0, strip_target=True)
+                        settle(2400)
+            verdict['repeat_back'] = lines
+            verdict['repeat_back_kept'] = sum(1 for l in lines if '保页位' in l)
+            verdict['repeat_back_total'] = len(lines)
+            return f'基准：第 {args.pages + 1} 页 卡片数 {base["n"]} 首卡 {base["first"]} | ' \
+                   f'保页位 {verdict["repeat_back_kept"]}/{len(lines)}\n      ' + '\n      '.join(lines)
+        step('S8b 深页连续 5 次进详情+back 的掉页率', s8b)
+
         # S9 引用卡 → 原帖（G4 的锚点）
         def s9():
             page.wheel(dy=1200, wait_ms=400)

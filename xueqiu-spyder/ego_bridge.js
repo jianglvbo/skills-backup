@@ -265,6 +265,46 @@ async function handle(req) {
                            text: loc.text, candidates: loc.total,
                            ms: Object.assign({ locate: locateMs }, clk), url: await page.url() } };
       }
+      case "clickTab": {
+        /* 真点击一个 target=_blank 的链接，把开出来的**新标签**接住并登记，返回它的 label。
+           为什么需要它（2026-10-05 实测）：「现场点 + back」不成立——深页 back 掉页率 5/5
+           （第 3 页进详情，back 回来是第 1 页），bfcache 是掷骰子；而时间线一旦掉页，
+           后面每条锚点都找不到。真点击带 target 的链接开新标签，**主页面全程不动**，
+           抓完关掉即可——这也正是真人刷雪球的手势。
+           实测依据：task.tabs() 能看到新开的那张 {label:"p2", url:".../410655234", openedBy:"agent"}。 */
+        const page = pageOf(req.page || (workPage ? workPage.label : "p1"));
+        if (!req.selector && !req.text) return { id, ok: false, error: "clickTab 需要 selector 或 text" };
+        const loc = await locateForClick(page, {
+          selector: req.selector || null, text: req.text || null, scope: req.scope || null,
+          within: req.within || null, nth: Number(req.nth || 0), childNth: Number(req.childNth || 0),
+          exact: !!req.exact, stripTarget: false,        // **故意不摘 target**，要的就是开新标签
+        });
+        if (!loc.ok) {
+          return { id, ok: false, error: "clickTab 找不到：" + (req.selector || ("文案「" + req.text + "」")) };
+        }
+        const tabsBefore = (await task.tabs()) || [];
+        const before = new Set(tabsBefore.map(t => t.targetId));
+        await cdpClick(page, loc.x, loc.y, { holdMs: req.holdMs, trail: req.trail || 1 });
+        const deadline = Date.now() + Number(req.waitMs || 8000);
+        let hit = null;
+        while (Date.now() < deadline && !hit) {
+          await page.waitForTimeout(250);
+          const after = (await task.tabs()) || [];
+          hit = after.find(t => !before.has(t.targetId)) || null;
+        }
+        if (!hit) {
+          return { id, ok: false,
+                   error: "点击后没等新到标签（该链接没有 target=_blank？主页面可能被就地导航了）" };
+        }
+        const np = task.page(hit.label);
+        pages.set(hit.label, np);          // 登记后 close 命令才认这张页
+        if (np !== workPage) { try { await np.bringToFront(); } catch (e) {} }
+        try { await np.waitForLoadState("domcontentloaded"); } catch (e) { /* 已就绪 */ }
+        if (req.settleMs) await np.waitForTimeout(Number(req.settleMs));
+        return { id, ok: true,
+                 result: { label: hit.label, url: await np.url(),
+                           at: [Math.round(loc.x), Math.round(loc.y)], text: loc.text } };
+      }
       case "wheel": {
         // 真滚轮：JS 的 scrollIntoView 是瞬移、不产生 wheel 事件，
         // 懒挂载节奏和真人差很远（也是采集器「逐条滚动」现在的形态）。
@@ -312,6 +352,48 @@ async function handle(req) {
       }
       case "url": {
         return { id, ok: true, result: await pageOf(req.page).url() };
+      }
+      case "tabs": {
+        // 调试用（2026-10-05 新标签方案）：真点击 target=_blank 开出来的那张标签，桥能不能接住。
+        // 能接住 → 「新标签开→抓→关」成立（时间线那张页全程不动，绕开 back 掉页）；
+        // 接不住 → 只能退回「详情/原帖用 goto」那条路。
+        const out = { taskFns: [], pages: Array.from(pages.keys()), tabs: null, err: null };
+        let to = pageOf(req.page || (workPage ? workPage.label : "p1"));
+        try {
+          const names = new Set();
+          let o = task;
+          while (o && o !== Object.prototype) {
+            for (const k of Object.getOwnPropertyNames(o)) if (typeof o[k] === "function") names.add(k);
+            o = Object.getPrototypeOf(o);
+          }
+          out.taskFns = [...names].sort();
+        } catch (e) { out.err = "taskFns: " + String(e).slice(0, 80); }
+        try {
+          if (typeof task.tabs === "function") {
+            const list = await task.tabs();
+            out.tabs = Array.isArray(list) ? list.map(x => (typeof x === "string" ? x : JSON.stringify(x))) : list;
+          }
+        } catch (e) { out.err = "tabs: " + String(e).slice(0, 120); }
+        try {
+          if (typeof task.pages === "function") {
+            const ps = await task.pages();
+            out.taskPages = Array.isArray(ps)
+              ? ps.map(x => (x && x.label ? x.label : String(x))) : ps;
+          }
+        } catch (e) { out.err = (out.err || "") + " pages: " + String(e).slice(0, 120); }
+        // 逐个 label 试着 page() 取到 Page 并读 url——取得到才能「抓完就关」
+        try {
+          const labels = (out.tabs && out.tabs.map(t => (t && t.label) || t)) || out.taskPages || [];
+          out.readable = [];
+          for (const lb of labels) {
+            try {
+              const pg = typeof task.page === "function" ? task.page(lb) : null;
+              out.readable.push({ label: lb, url: pg ? String(await pg.url()).slice(0, 90) : "no page()" });
+            } catch (e2) { out.readable.push({ label: lb, err: String(e2).slice(0, 70) }); }
+          }
+        } catch (e) { out.err = (out.err || "") + " readable: " + String(e).slice(0, 100); }
+        try { out.url = await to.url(); } catch (e) { /* ignore */ }
+        return { id, ok: true, result: out };
       }
       case "pageApi": {
         // 调试用（2026-10-05 加）：ego 的 page 对象**不是** Playwright Page

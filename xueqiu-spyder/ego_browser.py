@@ -341,6 +341,11 @@ class EgoBridge:
         res = self.call("newPage", timeout=60)
         return Page(self, (res or {}).get("label") or "p1")
 
+    def tab_page(self, label):
+        """把 `Page.click_tab()` 接住的标签包成可操作的 Page（桥已登记该 label，
+        可直接 evaluate/close）。别拿它开新页——开新页用 new_page()。"""
+        return Page(self, label)
+
     # ── 请求 ──────────────────────────────────────────────────
     def handoff(self, wait_ms=900000):
         """把任务空间交给用户（滑块/验证要人工过），阻塞等待用户交还控制权。
@@ -444,9 +449,23 @@ class Page:
 
     def back(self, settle_ms=None, timeout=40):
         """真返回（走浏览器历史栈，等价于点左上角箭头；不是 evaluate('history.back()')）。
-        回执 {from, to, moved, index, depth, targetUrl}；到头了会抛 BridgeError。"""
+        回执 {from, to, moved, index, depth, targetUrl}；到头了会抛 BridgeError。
+        ⚠ 别拿它做「进详情→回时间线」的循环：10-05 实测深页 back 掉页率 5/5
+        （第 3 页进详情，back 回来落在第 1 页），那种场景改用 click_tab() 开新标签、抓完关。"""
         return self._bridge.call("back", timeout=timeout, page=self.label,
                                  settleMs=settle_ms)
+
+    def click_tab(self, selector=None, text=None, scope=None, within=None, nth=0,
+                  settle_ms=None, wait_ms=None, trail=None, timeout=60):
+        """真点击 `target=_blank` 的链接，把开出来的**新标签**接住。
+        回执 `{label, url, at, text}`；用 `self._bridge.tab_page(label)` 变成可操作的 Page，
+        在它上面 evaluate 抓数据，**用完必须 .close()**（ego 一个空间只有 8 张页上限）。
+        主页面全程不动 —— 这才是替代「点进详情 + back」的正确形态（见 back 的警告）。"""
+        if not selector and not text:
+            raise BridgeError("click_tab 需要 selector 或 text")
+        return self._bridge.call("clickTab", timeout=timeout, page=self.label,
+                                 selector=selector, text=text, scope=scope, within=within,
+                                 nth=nth, settleMs=settle_ms, waitMs=wait_ms, trail=trail)
 
     def evaluate(self, fn_or_expr, arg=None):
         # arg 必须显式给（不能是「缺字段」）：ego 的 page.evaluate 对「没有第二个

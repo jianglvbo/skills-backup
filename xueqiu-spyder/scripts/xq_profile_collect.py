@@ -5,9 +5,11 @@
 → 滚到底真点击「下一页」翻页；回复帖点「查看对话」开弹窗拿整链；转帖引用卡结构化为「回复内容」块；
 专栏帖与展开失败帖**在卡片上点那行时间进详情页**拿全文+权威时间，再**点返回**回本页同一位置。
 
-**输入一律是真的**（2026-10-05 去 goto 化）：走桥的 `click/wheel/back`（CDP Input 域，
+**输入一律是真的**（2026-10-05 去 goto 化）：走桥的 `click / clickTab / wheel`（CDP Input 域，
 `isTrusted=true`），不用 `page.goto`、也不用 evaluate 里的 `el.click()`（JS 合成事件比 goto 更好认）。
-全场只剩开头进主页那一次 goto。全程页面点击，不做 API 上下文盲拉。
+详情/原帖/锚定一律**真点击开新标签、抓完就关**——不用「点进去再 back」：实测深页 back
+掉页率 5/5（第 3 页进详情，back 回来落在第 1 页），一掉页后面每条锚点都找不到。
+全场只剩开头进雪球首页那一次 goto。全程页面点击，不做 API 上下文盲拉。
 
 一次翻页同时产出两份产物：
   1. 帖子集 md（`雪球采集-{博主}-{日期}.md`）→ import-post-history.js（图走「图：」行，不进正文）
@@ -146,6 +148,20 @@ def parse_abs_time(label):
     return derive_time(t, ANCHOR_MS)
 
 
+# 入站（G1）用：关注列表里「显示名 + href」。为什么非按名字不可——列表里的 href 常是
+# 自定义域名（实测 /investinginchina、/forcode、/ericwarn），对不上 uid；
+# 顺带说明 xq_dialog_collect.JS_FOLLOW_LIST 那条 `^/\d+$` 判据会**静默漏掉这些博主**（P5 修）。
+FRIENDS_A = "a[href='/center/#/friends']"
+JS_FOLLOW_ROWS = r"""() => {
+  const out = [];
+  document.querySelectorAll('.profiles__user').forEach((c, i) => {
+    const a = c.querySelector('a.avatar') || c.querySelector('a[href]');
+    out.push({ i: i, name: (c.innerText || '').split('\n')[0].trim(),
+               href: a ? a.getAttribute('href') : null });
+  });
+  return out;
+}"""
+
 # 给「当前卡的展开控件」打标记，真点击由 Python 侧发（合成点击 a.click() 已退役，见 _ck）。
 # 判据两条：① 排除引用卡 blockquote 里那个（沿用 JS_EXPAND 口径）；② 文案必须是「展开」——
 # 展开成功后同一个控件会变成「收起」，不加这条就会一直判定成残留、白重两次点。
@@ -173,9 +189,10 @@ class ProfileCollector:
         self.posts = []        # 每帖 dict（md 导出源）
         self.threads = []      # 对话串（与 xq_dialog_collect 同构：trigger/root/nodes）
         self.origs_seen = 0
+        self.roots_seen = set()   # 已排上原帖全量的 root url（跨页去重）
+        self.last_visit_errored = False   # 上一次访问是「页面卡住/桥错」而非「没取到正文」
         self.pages_done = 0
         self.degraded = False
-        self.detail_abort = False   # 一次 back 没回时间线 → 本页剩余详情补全中止（页位已丢）
         self.expand_present = 0     # §3.5 口径：有展开控件的帖数
         self.expand_failed = 0      # 其中没点开的＝掉进 G2 详情补全的量（v1 基线 108/797＝14%）
         self.stop_hit = ''
@@ -192,9 +209,30 @@ class ProfileCollector:
             pass
 
     def _goto_profile(self):
+        """入站（G1 点击化）：首页 1 次 goto（全场唯一一次）→ 真点「关注 N」→
+        关注列表里按显示名真点该博主 → 落地校验 uid。
+        找不到 / 对不上 uid 一律**明确失败退出，不静默回落 goto**——
+        回落等于把最大那块风控面留着，而且会静默采错人。"""
         page = self.bridge.main_page
-        page.goto(f'https://www.xueqiu.com/u/{self.uid}', wait_until='domcontentloaded', timeout=25000)
-        page.wait_for_timeout(2500)
+        if not self.blogger or self.blogger == self.uid:
+            sys.exit('入站需要 --blogger 昵称：关注列表里只能按显示名定位（href 常是自定义域名）')
+        page.goto('https://www.xueqiu.com/', wait_until='domcontentloaded', timeout=25000)
+        page.wait_for_timeout(2200)
+        # 入站每场只有这两次点击，用 trail=3 换更像真人的位移；批量环节在 _ck 里固定 trail=1
+        if not self._ck(page, selector=FRIENDS_A, settle_ms=2600, trail=3):
+            sys.exit('入站失败：首页找不到「关注 N」入口（登录态掉了或页面改版）；不回落 goto')
+        rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
+        hit = [r for r in rows if r.get('name') == self.blogger]
+        if not hit:
+            sys.exit(f'入站失败：关注列表 {len(rows)} 行里没有「{self.blogger}」；不回落 goto')
+        if not self._ck(page, selector='a.avatar', within='.profiles__user',
+                        nth=hit[0]['i'], settle_ms=3000, trail=3):
+            sys.exit(f'入站失败：「{self.blogger}」那一行点不动（href={hit[0]["href"]}）；不回落 goto')
+        landed = re.search(r'/u/(\d+)', page.url or '')
+        if not landed or landed.group(1) != self.uid:
+            sys.exit(f'入站失败：点「{self.blogger}」落到 {page.url}，'
+                     f'uid 对不上目标 {self.uid}（重名或列表错位）；不回落 goto')
+        page.wait_for_timeout(1200)
 
     def recover(self, err):
         print(f'  ⚠️ 恢复：{str(err).splitlines()[0][:120]}', flush=True)
@@ -225,6 +263,46 @@ class ProfileCollector:
             if '找不到' in str(e):
                 return False
             raise
+
+    def _visit_tab(self, selectors, script=None, settle_ms=1800):
+        """真点击开**新标签** → 在那张页上抓 → 关掉。时间线那张页全程不动。
+
+        为什么不用「点进详情 + back」：10-05 实测深页 back 掉页率 5/5
+        （第 3 页进详情，back 回来落在第 1 页），一掉页后面每条锚点都找不到；
+        而雪球卡片那行时间的 `<a>` 本来就带 target="_blank"，真人也是这么开新标签看帖的。
+
+        `selectors` 依次试（原帖锚点有两种形态：带 `#comment` 的「 · 讨论 N」与裸链接）。
+        返回 `(info, err)`：err ∈ {None, 'no-anchor', 'hang'}。
+        """
+        page = self.bridge.main_page
+        self.last_visit_errored = False
+        for sel in selectors:
+            try:
+                r = page.click_tab(selector=sel, settle_ms=settle_ms, trail=1)
+            except BridgeError as e:
+                msg = str(e)
+                if '找不到' in msg:
+                    continue                       # 这条锚点形态不在卡上，换下一条
+                if '没等新到标签' in msg:
+                    # 该链接没带 target=_blank → 主页面被就地导航了：就地抓，再 back 回去
+                    try:
+                        info = page.evaluate(script or JS_ROOT_FULL, None)
+                    finally:
+                        try:
+                            page.back(settle_ms=1200)
+                        except BridgeError:
+                            pass
+                    return info, None
+                raise
+            if not r or not r.get('label'):
+                return None, 'no-anchor'
+            tp = self.bridge.tab_page(r['label'])
+            try:
+                info = tp.evaluate(script or JS_ROOT_FULL, None)
+            finally:
+                tp.close()                         # 随用随关：ego 一个空间只有 8 张页
+            return info, None
+        return None, 'no-anchor'
 
     def _expand(self, page):
         """真点击「展开」，带懒挂载兜底与残留重点（v1 §3.5：展开失败率决定 G2 的量级）。"""
@@ -295,7 +373,9 @@ class ProfileCollector:
                     self.degraded = True
                     break
                 i = 0
-                page_todo = []      # 本页需要进详情的帖（现场点+back，见 _visit_details）
+                page_todo = []      # 本页需要进详情的帖（开新标签抓，见 _visit_details）
+                page_roots = []     # 本页需要原帖全量的串（锚点在本页引用卡上，见 _visit_roots）
+                page_anchor = []    # 本页引用卡没给链接的串（进触发帖永久页取锚点，见 _anchor_roots）
                 while i < tops:
                     try:
                         if not page.evaluate(JS_MARK, {'i': i}):
@@ -325,7 +405,15 @@ class ProfileCollector:
                             continue
                         if meta.get('hasDlg'):
                             try:
-                                self.threads.append(self._chain(page, meta))
+                                t = self._chain(page, meta)
+                                self.threads.append(t)
+                                ru = (t.get('root') or {}).get('url')
+                                if not ru:
+                                    page_anchor.append(t)   # 引用卡没给链接 → 进触发帖永久页取锚点（G3）
+                                # 原帖全量也攒到本页收尾统一做（锚点就在本页卡上，离开本页再也点不到）
+                                elif ru not in self.roots_seen:
+                                    self.roots_seen.add(ru)
+                                    page_roots.append(t)
                             except BridgeError as e:
                                 print(f'  [dlg] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
                                 self.recover(e)
@@ -370,9 +458,12 @@ class ProfileCollector:
                       f'（{round(100 * self.expand_failed / max(1, self.expand_present))}%，'
                       f'v1 基线 14%、§3.5 目标 <5%）', flush=True)
                 # 本页采完，**趁时间线还停在本页**把需要详情的帖子补掉：
-                # 现场点进详情 → 取全文/权威时间 → back 回本页同一位置
-                # （P0 实测 back 保留页位，重扫成本 0；换成页尾批量或事后 goto 都要重新翻回来）。
+                # 现场点进详情 → 取全文/权威时间 → 关新标签（时间线那张页不动）。
+                # 必须在翻页之前做完：出了这一页，卡上的锚点就再也点不到了。
                 self._visit_details(page_todo, pg)
+                # 先补锚定（会往 page_roots 追加新原帖），再统一去原帖页取全量
+                self._anchor_roots(page_anchor, pg, page_roots)
+                self._visit_roots(page_roots, pg)
                 self.pages_done = pg
                 if broken:
                     break
@@ -385,33 +476,55 @@ class ProfileCollector:
             raise
         finally:
             pass  # 桥留给 main() 收尾再关：后置的原帖/详情补全还要用，提前关会白启一轮
-        self._fix_roots()
-        self._thread_full_roots()
+        if self.roots_seen:
+            got = sum(1 for t in self.threads if (t.get('root') or {}).get('full'))
+            print(f'[full-root] 原帖全量：排上 {len(self.roots_seen)} 个，取到 {got} 条；'
+                  f'其余留引用卡快照（锚点不在屏上就不回落 goto）', flush=True)
         return self
 
-    # ── 详情与原帖访问 ────────────────────────────────────────────────────────
-    def _goto_visit(self, url):
-        """按 URL 直达取详情。**只剩 G4（原帖全量）还在用它**——那是 P3 的活：
-        原帖在时间线上有锚点（引用卡的「 · 讨论 N」/长文标题），改成现场点+back 后本方法即可删除。"""
-        for attempt in (1, 2):
+    # ── 原帖全量（G4）：真点击引用卡里的被引链接，开新标签抓完就关 ──────────────
+    def _visit_roots(self, todo, pg):
+        """进原帖页取全文+配图（新标签，时间线不动）。锚点两条（R2 录制实测）：
+        普通帖走引用卡的「 · 讨论 N」（href 结尾 `#comment`），长文引用卡走标题链接
+        （href 就是 `/root_uid/root_pid`）。
+        两个都找不到就**留引用卡快照，不回落 goto**：原帖文字在点「展开」时已经连带到手，
+        进原帖页只为取图与权威时间，取不到就是少一张图，不值得为它保留最大那块风控面。"""
+        if not todo:
+            return
+        print(f'[full-root] 第 {pg} 页现场补原帖 {len(todo)} 条（点引用卡）', flush=True)
+        snap_only = 0
+        err_streak = 0
+        for t in todo:
+            ru = t['root']['url']
+            path = '/' + re.sub(r'^https?://[^/]+/', '', ru).split('#')[0].strip('/')
             try:
-                page = self.bridge.main_page
-                page.goto(url, wait_until='domcontentloaded', timeout=20000)
-                page.wait_for_timeout(1800)
-                return page.evaluate(JS_ROOT_FULL, None)
+                info, _err = self._visit_tab((f'a[href="{path}#comment"]', f'a[href="{path}"]'))
             except BridgeError as e:
-                print(f'  [goto] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
-                if attempt == 1:
-                    self.recover(e)
-                else:
-                    return None
-            except Exception as e2:
-                print(f'  [goto] evaluate 失败 {url}: {type(e2).__name__}', flush=True)
-                return None
-        return None
+                # 单页卡住不升级成整桥重启（10-05 教训：recover() 里一次 90s 启动超时会带走整批）
+                print(f'  [full] 页面卡住：{str(e).splitlines()[0][:90]}', flush=True)
+                self.last_visit_errored = True
+                info = None
+            err_streak = err_streak + 1 if self.last_visit_errored else 0
+            if err_streak >= 2:
+                print(f'  [full] 连续 {err_streak} 次页面卡住，第 {pg} 页原帖补全中止', flush=True)
+                self.degraded = True
+                break
+            time.sleep(xqcfg.page_delay())
+            if info and info.get('text'):
+                full = {'text': info['text'], 'time': info['time'], 'form': info['form'],
+                        'title': info.get('title') or '', 'imgs': info.get('imgs') or []}
+                for t2 in self.threads:            # 同一原帖可能被多条串引用，一次抓全填回去
+                    if (t2.get('root') or {}).get('url') == ru:
+                        t2['root']['full'] = full
+                print(f"  [full] {ru[-12:]} {len(info['text'])} 字 · 图{len(full['imgs'])}", flush=True)
+            else:
+                snap_only += 1
+                print(f'  [full] 卡上取不到原帖页，留快照 {ru}', flush=True)
+        if snap_only:
+            print(f'  [full] 第 {pg} 页 {snap_only} 条只留快照', flush=True)
 
     def _detail_visit(self, p):
-        """点卡片那行时间的永久链进详情页 → 取全文+权威时间 → back 回时间线。
+        """开**新标签**进详情页 → 取全文+权威时间 → 关标签（时间线那张页不动）。
 
         锚点判据（R2 录制 + P0 探针实测）：每张卡自带 `a[href="/uid/pid"]`（就是那行时间，
         带「修改于」前缀同理），**长文帖也是这一条**，不必去找标题链接；
@@ -419,49 +532,31 @@ class ProfileCollector:
         找不到锚点就标 detail_failed 留给下次，**不静默回落 goto**——回落等于把最大那块风控面留着。
         """
         path = '/' + re.sub(r'^https?://[^/]+/', '', p['url']).split('#')[0].strip('/')
-        for attempt in (1, 2):
-            try:
-                page = self.bridge.main_page
-                if not self._ck(page, selector=f'a[href="{path}"]', settle_ms=1800):
-                    print(f'  [detail] 卡上找不到锚点 {path}，标摘要留给下次', flush=True)
-                    return None
-                if path not in (page.url or ''):
-                    print(f'  [detail] 点了没落到详情页（当前 {page.url}）', flush=True)
-                    return None
-                info = page.evaluate(JS_ROOT_FULL, None)
-                page.back(settle_ms=1200)
-                if f'/u/{self.uid}' not in (page.url or ''):
-                    page.back(settle_ms=1200)          # 第一次 back 没回到时间线，再退一次
-                if f'/u/{self.uid}' not in (page.url or ''):
-                    self.detail_abort = True           # 页位已丢，本页剩下的点了也找不到锚点
-                    print(f'  [detail] back 没回时间线（{page.url}），本页补全中止', flush=True)
-                return info
-            except BridgeError as e:
-                print(f'  [detail] 桥错误：{str(e).splitlines()[0][:90]}', flush=True)
-                self.detail_abort = True   # recover 会把时间线拉回第 1 页，本页剩余锚点必丢
-                if attempt == 1:
-                    self.recover(e)
-                return None
-            except Exception as e2:
-                print(f'  [detail] evaluate 失败 {path}: {type(e2).__name__}', flush=True)
-                return None
-        return None
+        try:
+            info, err = self._visit_tab([f'a[href="{path}"]'])
+        except BridgeError as e:
+            # 单页卡住（实测 evaluate 15s 超时「Page is still unresponsive」）不值得整桥重启：
+            # 10-05 烟测就是栽在 recover() 里那次 90s 启动超时——一次页面抖动带走整批。
+            print(f'  [detail] 页面卡住：{str(e).splitlines()[0][:90]}', flush=True)
+            self.last_visit_errored = True
+            return None
+        if err == 'no-anchor':
+            print(f'  [detail] 卡上找不到锚点 {path}，标摘要留给下次', flush=True)
+        return info
 
     def _visit_details(self, todo, pg):
-        """一页采完、点「下一页」之前统一补详情（顺序纪律见 out/qoder/de-goto-plan-v2.md §一之二：
-        back 之后卡片的**展开态会复位**，所以取文必须在进详情之前做完，这里不再回头补展开）。"""
+        """一页采完、点「下一页」之前统一补详情。
+        取文（展开）必须在进详情之前做完——新标签那条路不动时间线，
+        但**展开态是页面状态**，翻页/重渲染后会复位，所以本页的展开先做完再回访。"""
         todo = [p for p in todo if p.get('needs_detail') and p.get('url')]
         if not todo:
             return
         print(f'[detail] 第 {pg} 页现场补全 {len(todo)} 帖（专栏/展开失败）', flush=True)
-        self.detail_abort = False
         n_break = 0
         miss_streak = 0
+        err_streak = 0
         waf_barked = False
         for p in todo:
-            if self.detail_abort:
-                print(f'  [detail] 页位已丢，第 {pg} 页剩余 {len(todo)} 帖留给下次', flush=True)
-                break
             if n_break >= xqcfg.DETAIL_BREAK_N:
                 print(f'  [detail] 长歇 {xqcfg.DETAIL_BREAK_S}s', flush=True)
                 time.sleep(xqcfg.DETAIL_BREAK_S)
@@ -469,6 +564,12 @@ class ProfileCollector:
             info = self._detail_visit(p)
             time.sleep(xqcfg.page_delay())   # 详情页间隔同样吃 XUEQIU_PAGE_DELAY_RANGE 档
             n_break += 1
+            err_streak = err_streak + 1 if self.last_visit_errored else 0
+            if err_streak >= 2:
+                # 连着两次「页面卡住」＝时间线/渲染器已经不可用了，继续点只会每次白等 15s
+                print(f'  [detail] 连续 {err_streak} 次页面卡住，第 {pg} 页详情补全中止', flush=True)
+                self.degraded = True
+                break
             if info and info.get('text'):
                 p['full'] = {'text': info['text'], 'time': info['time'],
                              'title': info.get('title') or '', 'imgs': info.get('imgs') or []}
@@ -484,59 +585,36 @@ class ProfileCollector:
                     waf_bark(f'详情页连续 {miss_streak} 帖取不到正文（{self.blogger}），'
                              f'疑似滑块/风控页——如果 ego lite 里有验证请你过一下，本批继续跑、过不去的标摘要留给下次')
 
-    def _fix_roots(self):
-        need = [t for t in self.threads if not (t.get('root') or {}).get('url')]
-        if not need:
+    def _anchor_roots(self, todo, pg, page_roots):
+        """G3 回复帖锚定：真点触发帖那行时间开新标签 → `JS_ROOT_ANCHOR` 取「被讨论帖」→ 关标签。
+        锚到的新原帖若没排过队，追加进 `page_roots`，让本页收尾一起去原帖页。
+        （原来这里是 goto 触发帖永久页——永久页 URL 就在卡上，没有必须直达的理由。）"""
+        if not todo:
             return
-        print(f'[root] 补锚定 {len(need)} 条（回复帖永久页取上下文锚点）', flush=True)
-        for t in need:
+        print(f'[root] 第 {pg} 页补锚定 {len(todo)} 条（点触发帖开新标签取锚点）', flush=True)
+        for t in todo:
+            tu = t.get('trigger', {}).get('url') or ''
+            path = '/' + re.sub(r'^https?://[^/]+/', '', tu).split('#')[0].strip('/')
+            if not path or path == '/':
+                print(f'  [root] 触发帖没有永久链 {tu}', flush=True)
+                continue
+            err = None
             try:
-                page = self.bridge.main_page
-                page.goto(t['trigger']['url'], wait_until='domcontentloaded', timeout=20000)
-                page.wait_for_timeout(1600)
-                info = page.evaluate(JS_ROOT_ANCHOR, None)
-                if info and info.get('rootUrl'):
-                    t['root'] = {'url': info['rootUrl']}
-                else:
-                    print(f"[root] 无锚点 {t['trigger']['url']}", flush=True)
-                time.sleep(1.2 + (xqcfg.page_delay() - 1.2) * 0.3)
+                info, err = self._visit_tab((f'a[href="{path}"]',), script=JS_ROOT_ANCHOR)
             except BridgeError as e:
-                print(f'[root] 桥错误: {e}', flush=True)
-                self.recover(e)
-
-    def _thread_full_roots(self):
-        need, seen = [], set()
-        for t in self.threads:
-            r = (t.get('root') or {})
-            u = r.get('url')
-            if u and not r.get('full') and u not in seen:
-                seen.add(u)
-                need.append(t)
-        if not need:
-            return
-        print(f'[full-root] 原帖全量抓取 {len(need)} 条（去重后）', flush=True)
-        miss_streak = 0
-        waf_barked = False
-        for t in need:
-            ru = t['root']['url']
-            info = self._goto_visit(ru)
-            time.sleep(xqcfg.page_delay())
-            if info and info.get('text'):
-                miss_streak = 0
-                full = {'text': info['text'], 'time': info['time'], 'form': info['form'],
-                        'title': info.get('title') or '', 'imgs': info.get('imgs') or []}
-                for t2 in self.threads:
-                    if (t2.get('root') or {}).get('url') == ru:
-                        t2['root']['full'] = full
-                print(f"  [full] {ru[-12:]} {len(info['text'])} 字 · 图{len(full['imgs'])}", flush=True)
-            else:
-                miss_streak += 1
-                print(f'  [full] 无正文容器 {ru}', flush=True)
-                self.degraded = True
-                if miss_streak >= 4 and not waf_barked:
-                    waf_barked = True   # 连续无正文＝疑似滑块/风控冷却窗，Bark 提醒（不停车）
-                    waf_bark(f'原帖页连续 {miss_streak} 条无正文容器（{self.blogger}），'
-                             f'疑似滑块/风控冷却——如果 ego lite 里有验证请你过一下；本批继续，缺口留快照')
+                print(f'  [root] 页面卡住：{str(e).splitlines()[0][:90]}', flush=True)
+                info = None
+            if err == 'no-anchor':
+                print(f'  [root] 卡上找不到触发帖锚点 {path}', flush=True)
+            time.sleep(1.2 + (xqcfg.page_delay() - 1.2) * 0.3)
+            if info and info.get('rootUrl'):
+                ru = info['rootUrl']
+                t['root'] = {'url': ru}
+                if ru not in self.roots_seen:
+                    self.roots_seen.add(ru)
+                    page_roots.append(t)
+            elif err != 'no-anchor':
+                print(f'  [root] 无锚点 {tu}', flush=True)
 
     # ── 产物 ──────────────────────────────────────────────────────────────
     def summary(self):
