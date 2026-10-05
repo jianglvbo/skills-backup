@@ -221,10 +221,23 @@ class ProfileCollector:
         # 入站每场只有这两次点击，用 trail=3 换更像真人的位移；批量环节在 _ck 里固定 trail=1
         if not self._ck(page, selector=FRIENDS_A, settle_ms=2600, trail=3):
             sys.exit('入站失败：首页找不到「关注 N」入口（登录态掉了或页面改版）；不回落 goto')
-        rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
-        hit = [r for r in rows if r.get('name') == self.blogger]
+        # 列表是 AJAX 渲染：冷空间首开常只有占位行（10-05 实测 1 行即退出过）——
+        # 轮询等目标名字出现；行数**连续三轮不变且非空**才判「渲染完了、真没这个人」。
+        # ⚠ 比的是「上一轮的行数」不是「稳定轮数」——写成比计数器就永不成立，
+        #   找不到人时必定把 12 轮 ×1.8s 跑满（10-05 另一会话补这段时踩过）。
+        rows, hit, prev_n, stable = [], [], -1, 0
+        for _ in range(12):
+            page.wait_for_timeout(1800)
+            rows = page.evaluate(JS_FOLLOW_ROWS, None) or []
+            hit = [r for r in rows if r.get('name') == self.blogger]
+            if hit:
+                break
+            stable = stable + 1 if (rows and len(rows) == prev_n) else 0
+            prev_n = len(rows)
+            if stable >= 3:
+                break
         if not hit:
-            sys.exit(f'入站失败：关注列表 {len(rows)} 行里没有「{self.blogger}」；不回落 goto')
+            sys.exit(f'入站失败：关注列表等待后 {len(rows)} 行里没有「{self.blogger}」；不回落 goto')
         if not self._ck(page, selector='a.avatar', within='.profiles__user',
                         nth=hit[0]['i'], settle_ms=3000, trail=3):
             sys.exit(f'入站失败：「{self.blogger}」那一行点不动（href={hit[0]["href"]}）；不回落 goto')
