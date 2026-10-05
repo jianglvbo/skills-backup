@@ -30,7 +30,10 @@ PUA = re.compile(r'[\uE000-\uF8FF]')
 _TAIL_ARTIFACT = re.compile(r'(?:\s*(?:查看图片|查看对话|查看原图))+\s*$')
 CLEAN = lambda s: _TAIL_ARTIFACT.sub('', PUA.sub('', (s or ''))).strip()
 
-# ── 页内脚本（全部走 evaluate；点击=el.click() 走 JS handler，符合「点击不裸调」口径）──
+# ── 页内脚本 ──
+# 读数据走 evaluate；**动作一律不走 el.click()**（那是 JS 合成事件，isTrusted=false）。
+# 下面几个带 .click() 的常量（JS_EXPAND / JS_OPEN_DLG / JS_MODAL_CLOSE / JS_NEXT_PAGE）
+# 现在只服务 feed.py，本采集器与 xq_profile_collect 已全部换成桥的真点击（_ck / click_tab）。
 
 JS_TOPS = """() => {
   const tops = [...document.querySelectorAll('[class*="timeline__item"]')]
