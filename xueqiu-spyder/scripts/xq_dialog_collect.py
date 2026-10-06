@@ -378,7 +378,10 @@ def enter_profile_by_click(ck, page, uid, blogger, fail=sys.exit):
     # 按 href 精确点，不用 nth+外壳选择器：新渲染形态下只有首行有外壳，按序号点会点空
     if not ck(selector=f'a[href="{hit[0]["href"]}"', settle_ms=3000, trail=3):
         fail(f'入站失败：「{blogger}」那一行点不动（href={hit[0]["href"]}）；不回落 goto')
-    landed = re.search(r'/u/(\d+)', page.url or '')
+    # 落地 uid 兼容两种形态：/u/<uid> 与 xueqiu.com/<uid>（部分博主无 vanity 时
+    # 雪球直接以根路径数字提供主页、不 302 到 /u/——10-06 边城浪子1986/鹅总投资笔记
+    # 连续被误判「uid 对不上」，其实落到和目标是同一个号）
+    landed = re.search(r'xueqiu\.com/(?:u/)?(\d+)', page.url or '')
     got = landed.group(1) if landed else None
     if uid is None:
         if not got:
