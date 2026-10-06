@@ -5,6 +5,8 @@
   "parent_id": null,
   "sort_order": 1,
   "targets": [
-    "qwen_work"
+    "qoder",
+    "qwen_work",
+    "zcode"
   ]
 }
