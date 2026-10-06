@@ -337,6 +337,10 @@ def write_thread_sidecars(rows, out_dir, md_path, tab):
 
 def clean_feed(t):
     t = (t or "").replace("\u00a0", " ").strip()
+    # 「查看对话」锚点在 innerText 里常黏着对话链首条预览（@人名：原帖开头全文）——
+    # 只剥字样不够（10-05 实锤 447 行 ph 被黏原帖全文、卡片把原帖当回复内容渲染）。
+    # 对话链预览永远在正文末尾：从「查看对话」起整段剥（2026-10-06）。
+    t = re.sub(r"查看对话\s*@[^：:\n]{1,40}：[\s\S]*$", "", t).strip()
     for _ in range(3):
         t = re.sub(r"(收起|展开|查看对话|查看图片)\s*$", "", t).strip()
     return t
