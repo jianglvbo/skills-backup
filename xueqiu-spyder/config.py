@@ -27,9 +27,9 @@ REQUEST_DELAY = float(os.environ.get("XUEQIU_REQUEST_DELAY", "1.0"))
 MAX_RETRIES = 3
 
 # 翻页间隔（user 模式逐博主主页时间线 / 热门 tab）：XUEQIU_PAGE_DELAY_RANGE="min,max"
-# 随机档，拉长防风控（缺省 1.0,1.0＝沿用 REQUEST_DELAY 的旧行为）。
+# 随机档（2026-10-06 用户拍板缺省 4~6s；XUEQIU_PAGE_DELAY_RANGE 环境变量仍可临时覆盖）。
 # 只作用于翻页循环——内层每次请求仍按 REQUEST_DELAY，避免间隔叠乘把整轮拖垮。
-_pg = os.environ.get("XUEQIU_PAGE_DELAY_RANGE", "1.0,1.0").split(",")
+_pg = os.environ.get("XUEQIU_PAGE_DELAY_RANGE", "4,6").split(",")
 PAGE_DELAY_RANGE = (float(_pg[0].strip()),
                    float(_pg[1].strip()) if len(_pg) > 1 else float(_pg[0].strip()))
 

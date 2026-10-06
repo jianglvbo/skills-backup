@@ -131,7 +131,7 @@ $PY "$SPYDER/main.py" user {xq_id} \
 全程页面操作、ego lite 里肉眼可见（crawler user 的页面上下文请求页面不动，不满足此口径）。
 
 ```bash
-XUEQIU_PAGE_DELAY_RANGE="8,15" XUEQIU_EGO_WAKE=0 \
+XUEQIU_EGO_WAKE=0 \
 $PY "$SPYDER/scripts/xq_profile_collect.py" {uid} \
   --blogger {昵称} --pages 40 --stop-before {YYYY-MM-DD} --out ~/.cache/xueqiu-spyder/recrawl
 ```
