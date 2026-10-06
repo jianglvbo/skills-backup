@@ -347,8 +347,16 @@ class ProfileCollector:
         try:
             broken = False
             for pg in range(1, pages + 1):
-                page = self.bridge.main_page
-                tops = page.evaluate(JS_TOPS, None)
+                # 翻页后空间可能已被 ego 回收（10-06 晚舟夕照：Task space not found 直接炸整场）
+                # → 先 recover 换新空间重进主页再数，本页重扫靠 done 去重
+                try:
+                    page = self.bridge.main_page
+                    tops = page.evaluate(JS_TOPS, None)
+                except BridgeError as e:
+                    print(f'  [page {pg}] 页面失联：{str(e).splitlines()[0][:80]}，recover 后重试', flush=True)
+                    self.recover(e)
+                    page = self.bridge.main_page
+                    tops = page.evaluate(JS_TOPS, None)
                 print(f'[page {pg}] 顶层帖 {tops}', flush=True)
                 if tops == 0 and pg > 1:
                     print(f'[page {pg}] 翻页后 0 帖——翻页失效，止损', flush=True)
